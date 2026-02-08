@@ -7,26 +7,28 @@ import okhttp3.Callback
 import okhttp3.Response
 import okhttp3.internal.closeQuietly
 import java.io.IOException
+import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 @OptIn(ExperimentalCoroutinesApi::class)
-suspend fun Call.await(): Response = suspendCancellableCoroutine{ continuation ->
-enqueue(
-    object : Callback{
-        override fun onFailure(call: Call, e: IOException) {
-            continuation.resumeWithException(e)
-        }
+suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation ->
+    enqueue(
+        object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                continuation.resumeWithException(e)
+            }
 
-        override fun onResponse(call: Call, response: Response) {
-            continuation.resume(response) {
-                // ensure response closed when coroutine cancelled
-                try {
+            override fun onResponse(call: Call, response: Response) {
+                if (!continuation.isActive) {
                     response.closeQuietly()
-                } catch (_: Throwable) {
+                    return
                 }
+
+                continuation.invokeOnCancellation {
+                    response.closeQuietly()
+                }
+                continuation.resume(response)
             }
         }
-
-    }
-)
+    )
 }

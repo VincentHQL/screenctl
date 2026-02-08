@@ -6,7 +6,6 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.flyfishxu.kadb.Kadb
-import com.scrctl.client.core.devicemanager.DeviceConnectionState
 import com.scrctl.client.core.devicemanager.DeviceManager
 import com.scrctl.client.core.Dispatcher
 import com.scrctl.client.core.ScrctlDispatchers
@@ -17,10 +16,9 @@ import com.scrctl.client.core.repository.GroupRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -31,8 +29,10 @@ class DeviceAddViewModel @Inject constructor(
     private val groupRepository: GroupRepository,
     private val deviceRepository: DeviceRepository,
     private val deviceManager: DeviceManager,
-    @Dispatcher(ScrctlDispatchers.IO) private val ioDispatcher: CoroutineDispatcher,
+    @param:Dispatcher(ScrctlDispatchers.IO) private val ioDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
+
+    private val defaultGroupName = "默认分组"
 
     var groups by mutableStateOf(listOf<Group>())
         private set
@@ -57,27 +57,12 @@ class DeviceAddViewModel @Inject constructor(
     ): Long {
         val trimmedName = deviceName.trim()
 
-        val entity = when (method) {
-            ConnectionMethod.DIRECT -> {
-                Device(
+        val entity = Device(
                     groupId = groupId,
-                    connectMode = 1,
                     deviceAddr = ipAddress.trim(),
                     devicePort = adbPort,
                     name = if (trimmedName.isNotEmpty()) trimmedName else ipAddress.trim(),
                 )
-            }
-
-            ConnectionMethod.WIRELESS -> {
-                Device(
-                    groupId = groupId,
-                    connectMode = 2,
-                    deviceAddr = ipAddress.trim(),
-                    devicePort = adbPort,
-                    name = if (trimmedName.isNotEmpty()) trimmedName else ipAddress.trim(),
-                )
-            }
-        }
 
         return withContext(ioDispatcher) {
             deviceRepository.insertDevice(entity)
@@ -119,16 +104,9 @@ class DeviceAddViewModel @Inject constructor(
                 deviceManager.reconnect(id)
 
                 try {
-                    val finalDevice = waitForFinalState(id, timeoutMs)
-                    if (finalDevice.connectionState == DeviceConnectionState.CONNECTED.name) {
-                        id
-                    } else {
-                        val msg = finalDevice.connectionError.takeIf { it.isNotBlank() } ?: "连接失败"
-                        deviceRepository.deleteDeviceById(id)
-                        throw IllegalStateException(msg)
-                    }
+                    waitUntilConnected(id, timeoutMs)
+                    id
                 } catch (t: Throwable) {
-                    // timeout or other errors -> rollback
                     deviceRepository.deleteDeviceById(id)
                     if (t is TimeoutCancellationException) {
                         throw IllegalStateException("连接超时")
@@ -139,14 +117,12 @@ class DeviceAddViewModel @Inject constructor(
         }
     }
 
-    private suspend fun waitForFinalState(deviceId: Long, timeoutMs: Long): Device {
-        return withTimeout(timeoutMs) {
-            deviceRepository.observeDeviceById(deviceId)
-                .filterNotNull()
-                .first { d ->
-                    d.connectionState == DeviceConnectionState.CONNECTED.name ||
-                        d.connectionState == DeviceConnectionState.ERROR.name
-                }
+    private suspend fun waitUntilConnected(deviceId: Long, timeoutMs: Long) {
+        withTimeout(timeoutMs) {
+            while (true) {
+                if (deviceManager.isConnected(deviceId)) return@withTimeout
+                delay(300)
+            }
         }
     }
 

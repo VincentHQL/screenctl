@@ -7,7 +7,7 @@ import com.scrctl.client.core.database.dao.GroupDao
 import com.scrctl.client.core.database.model.Device
 import com.scrctl.client.core.database.model.Group
 
-@Database(entities = [Group::class, Device::class], version = 3, exportSchema = false)
+@Database(entities = [Group::class, Device::class], version = 1, exportSchema = false)
 abstract class ScrctlDatabase : RoomDatabase() {
     abstract fun groupDao(): GroupDao
     abstract fun deviceDao(): DeviceDao

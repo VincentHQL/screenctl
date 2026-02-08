@@ -15,8 +15,8 @@ import com.scrctl.client.ui.device.DeviceDetailScreen
 import com.scrctl.client.ui.device.app.AppManagerScreen
 import com.scrctl.client.ui.device.file.FileManagerScreen
 import com.scrctl.client.ui.device.monitor.DeviceMonitorScreen
+import com.scrctl.client.ui.device.remote.RemoteControlScreen
 import com.scrctl.client.ui.home.HomeScreen
-import com.scrctl.client.ui.remote.RemoteControlScreen
 
 sealed class Screen(val route: String) {
     object Home : Screen("home")

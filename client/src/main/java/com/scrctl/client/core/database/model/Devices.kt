@@ -13,9 +13,9 @@ data class Device(
 
     @ColumnInfo(name = "group_id")
     var groupId: Long = -1,
-    
-    @ColumnInfo(name = "connect_mode")
-    var connectMode: Int = 1,
+
+    @ColumnInfo(name = "name")
+    var name: String = "",
 
     @ColumnInfo(name = "device_ip")
     var deviceAddr: String = "",
@@ -23,21 +23,27 @@ data class Device(
     @ColumnInfo(name = "device_port")
     var devicePort: Int = 5555,
 
-    @ColumnInfo(name = "adb_ip")
-    var adbIp: String = "",
+    @ColumnInfo(name = "model")
+    var model: String = "",
 
-    @ColumnInfo(name = "adb_port")
-    var adbPort: Int = 5037,
+    @ColumnInfo(name = "android_version")
+    var androidVersion: String = "",
 
-    @ColumnInfo(name = "name")
-    var name: String = "",
+    @ColumnInfo(name = "api_level")
+    var apiLevel: String = "",
 
-    @ColumnInfo(name = "connection_state")
-    var connectionState: String = "DISCONNECTED",
+    @ColumnInfo(name = "brand")
+    var brand: String = "",
 
-    @ColumnInfo(name = "connection_error")
-    var connectionError: String = "",
+    @ColumnInfo(name = "manufacturer")
+    var manufacturer: String = "",
 
-    @ColumnInfo(name = "connection_updated_at")
-    var connectionUpdatedAt: Long = 0L,
+    @ColumnInfo(name = "serial_number")
+    var serialNumber: String = "",
+
+    @ColumnInfo(name = "cpu_abi")
+    var cpuAbi: String = "",
+
+    @ColumnInfo(name = "updated_at")
+    var updatedAt: Long = 0L,
 )

@@ -80,7 +80,7 @@ public class Options {
     private boolean sendDummyByte = true; // write a byte on start to detect connection issues
     private boolean sendCodecMeta = true; // write the codec metadata before the stream
 
-    private boolean monitor = false;
+    private boolean agent = false;
 
     private boolean rtc = false;
 
@@ -292,12 +292,12 @@ public class Options {
         return sendCodecMeta;
     }
 
-    public boolean getMonitor() {
-        return monitor;
+    public boolean getAgent() {
+        return agent;
     }
 
-    public void setMonitor(boolean monitor) {
-        this.monitor = monitor;
+    public void setAgent(boolean agent) {
+        this.agent = agent;
     }
 
     public boolean getRtc() {
@@ -533,7 +533,7 @@ public class Options {
                     }
                     break;
                 case "monitor":
-                    options.monitor = Boolean.parseBoolean(value);
+                    options.agent = Boolean.parseBoolean(value);
                     break;
                 case "rtc":
                     options.rtc = Boolean.parseBoolean(value);

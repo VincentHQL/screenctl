@@ -14,8 +14,8 @@ import com.genymobile.scrcpy.device.DesktopConnection;
 import com.genymobile.scrcpy.device.Device;
 import com.genymobile.scrcpy.device.NewDisplay;
 import com.genymobile.scrcpy.device.Streamer;
-import com.genymobile.scrcpy.monitor.MonitorServer;
-import com.genymobile.scrcpy.monitor.RouterSetup;
+import com.genymobile.scrcpy.agent.AgentServer;
+import com.genymobile.scrcpy.agent.RouterSetup;
 import com.genymobile.scrcpy.opengl.OpenGLRunner;
 import com.genymobile.scrcpy.util.Ln;
 import com.genymobile.scrcpy.util.LogUtils;
@@ -25,8 +25,6 @@ import com.genymobile.scrcpy.video.ScreenCapture;
 import com.genymobile.scrcpy.video.SurfaceCapture;
 import com.genymobile.scrcpy.video.SurfaceEncoder;
 import com.genymobile.scrcpy.video.VideoSource;
-import com.genymobile.scrcpy.webrtc.Signaling;
-import com.genymobile.scrcpy.webrtc.SignalingObserver;
 
 import android.annotation.SuppressLint;
 import android.os.Build;
@@ -67,24 +65,6 @@ public final class Server {
         }
     }
 
-    private static class SignalingObserverImpl implements SignalingObserver {
-
-        @Override
-        public void onRegistered() {
-            Ln.i("registered");
-        }
-
-        @Override
-        public void onClose() {
-
-        }
-
-        @Override
-        public void onError() {
-
-        }
-    }
-
     private Server() {
         // not instantiable
     }
@@ -117,8 +97,7 @@ public final class Server {
         boolean control = options.getControl();
         boolean video = options.getVideo();
         boolean audio = options.getAudio();
-        boolean monitor = options.getMonitor();
-        boolean rtc = options.getRtc();
+        boolean agent = options.getAgent();
         boolean sendDummyByte = options.getSendDummyByte();
 
         Workarounds.apply();
@@ -182,16 +161,10 @@ public final class Server {
                 }
             }
 
-            if (monitor) {
-                MonitorServer monitorServer = new MonitorServer(scid);
-                RouterSetup.setupRoutes(monitorServer.getRouter(), FakeContext.get());
-                asyncProcessors.add(monitorServer);
-            }
-
-            if (rtc) {
-                Signaling signaling = new Signaling(FakeContext.get(), options);
-                signaling.setSignalObserver(new SignalingObserverImpl());
-                asyncProcessors.add(signaling);
+            if (agent) {
+                AgentServer agentServer = new AgentServer(scid);
+                RouterSetup.setupRoutes(agentServer.getRouter(), FakeContext.get());
+                asyncProcessors.add(agentServer);
             }
 
             Completion completion = new Completion(asyncProcessors.size());

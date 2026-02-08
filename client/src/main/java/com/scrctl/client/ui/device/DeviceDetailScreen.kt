@@ -64,7 +64,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.scrctl.client.core.devicemanager.DeviceConnectionState
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -86,6 +85,7 @@ fun DeviceDetailScreen(
 	val group = viewModel.group
 	val batteryPercent = viewModel.batteryPercent
 	val batteryLoading = viewModel.batteryLoading
+	val isOnline = viewModel.isConnected
 
 	val background = MaterialTheme.colorScheme.background
 	val surface = MaterialTheme.colorScheme.surface
@@ -100,20 +100,9 @@ fun DeviceDetailScreen(
 	var isDeleting by remember { mutableStateOf(false) }
 
 	val title = device?.name?.takeIf { it.isNotBlank() } ?: "设备详情"
-	val connectModeText = when (device?.connectMode) {
-		1 -> "本地直连"
-		2 -> "无线调试"
-		else -> "-"
-	}
+	val connectModeText = device?.let { "${it.deviceAddr}:${it.devicePort}" } ?: "-"
 
-	val connectionState = device?.connectionState ?: DeviceConnectionState.DISCONNECTED.name
-	val isOnline = connectionState == DeviceConnectionState.CONNECTED.name
-	val onlineText = when (connectionState) {
-		DeviceConnectionState.CONNECTED.name -> "在线"
-		DeviceConnectionState.CONNECTING.name -> "连接中"
-		DeviceConnectionState.ERROR.name -> "异常"
-		else -> "离线"
-	}
+	val onlineText = if (isOnline) "在线" else "离线"
 	val batteryText = when {
 		batteryLoading -> "电池 获取中"
 		batteryPercent != null -> "电池 ${batteryPercent}%"

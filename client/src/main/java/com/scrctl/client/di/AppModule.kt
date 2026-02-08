@@ -17,6 +17,8 @@ import kotlinx.coroutines.Dispatchers
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import com.scrctl.client.BuildConfig
+import com.scrctl.client.core.devicemanager.DeviceManager
+import com.scrctl.client.core.devicemanager.DeviceManagerImpl
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 
@@ -28,7 +30,7 @@ object AppModule {
     @Singleton
     fun provideDatabase(@ApplicationContext ctx: Context): ScrctlDatabase {
         return Room.databaseBuilder(ctx, ScrctlDatabase::class.java, "scrctl.db")
-            .fallbackToDestructiveMigration()
+            .fallbackToDestructiveMigration(dropAllTables = false)
             .build()
     }
 
@@ -39,23 +41,15 @@ object AppModule {
     fun provideDeviceDao(db: ScrctlDatabase): DeviceDao = db.deviceDao()
 
     @Provides
-    @Singleton
-    fun provideOkHttpClient(): OkHttpClient {
-        val builder = OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
-
-        if (BuildConfig.DEBUG) {
-            val logging = HttpLoggingInterceptor()
-            logging.level = HttpLoggingInterceptor.Level.BODY
-            builder.addInterceptor(logging)
-        }
-
-        return builder.build()
-    }
-
-    @Provides
     @Dispatcher(ScrctlDispatchers.IO)
     fun provideIODispatcher(): CoroutineDispatcher = Dispatchers.IO
+
+    @Provides
+    @Singleton
+    fun provideDeviceManager(
+        @ApplicationContext ctx: Context,
+        @Dispatcher(ScrctlDispatchers.IO) io: CoroutineDispatcher,
+    ): DeviceManager {
+        return DeviceManagerImpl(ctx, io)
+    }
 }

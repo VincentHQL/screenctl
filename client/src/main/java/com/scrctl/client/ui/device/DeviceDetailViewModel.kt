@@ -9,13 +9,13 @@ import com.scrctl.client.core.Dispatcher
 import com.scrctl.client.core.ScrctlDispatchers
 import com.scrctl.client.core.database.model.Device
 import com.scrctl.client.core.database.model.Group
-import com.scrctl.client.core.devicemanager.DeviceConnectionState
 import com.scrctl.client.core.devicemanager.DeviceManager
 import com.scrctl.client.core.repository.DeviceRepository
 import com.scrctl.client.core.repository.GroupRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -29,7 +29,7 @@ class DeviceDetailViewModel @Inject constructor(
     private val deviceRepository: DeviceRepository,
     private val groupRepository: GroupRepository,
     private val deviceManager: DeviceManager,
-    @Dispatcher(ScrctlDispatchers.IO) private val ioDispatcher: CoroutineDispatcher,
+    @param:Dispatcher(ScrctlDispatchers.IO) private val ioDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
 
     var device by mutableStateOf<Device?>(null)
@@ -47,7 +47,11 @@ class DeviceDetailViewModel @Inject constructor(
     var batteryLoading by mutableStateOf(false)
         private set
 
+    var isConnected by mutableStateOf(false)
+        private set
+
     private var observeJob: Job? = null
+    private var connectivityJob: Job? = null
     private var batteryUpdatedAt: Long = 0L
 
     init {
@@ -58,6 +62,7 @@ class DeviceDetailViewModel @Inject constructor(
 
     fun load(deviceId: Long) {
         observeJob?.cancel()
+        connectivityJob?.cancel()
 
         observeJob = deviceRepository.observeDeviceById(deviceId)
             .filterNotNull()
@@ -69,18 +74,24 @@ class DeviceDetailViewModel @Inject constructor(
                 } else {
                     null
                 }
-                refreshBatteryIfNeeded(d)
             }
             .launchIn(viewModelScope)
+
+        connectivityJob = viewModelScope.launch {
+            deviceManager.observeIsConnected(deviceId).collect { ok ->
+                isConnected = ok
+                val current = device
+                if (ok && current != null) {
+                    refreshBatteryIfNeeded(current)
+                } else if (!ok) {
+                    batteryPercent = null
+                    batteryLoading = false
+                }
+            }
+        }
     }
 
     private fun refreshBatteryIfNeeded(device: Device) {
-        if (device.connectionState != DeviceConnectionState.CONNECTED.name) {
-            batteryPercent = null
-            batteryLoading = false
-            return
-        }
-
         val now = System.currentTimeMillis()
         if (batteryLoading) return
         if (now - batteryUpdatedAt < 15_000) return

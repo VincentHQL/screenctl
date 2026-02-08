@@ -9,7 +9,6 @@ import com.scrctl.client.core.Dispatcher
 import com.scrctl.client.core.ScrctlDispatchers
 import com.scrctl.client.core.database.model.Device
 import com.scrctl.client.core.database.model.Group
-import com.scrctl.client.core.devicemanager.DeviceConnectionState
 import com.scrctl.client.core.devicemanager.DeviceManager
 import com.scrctl.client.core.repository.DeviceRepository
 import com.scrctl.client.core.repository.GroupRepository
@@ -27,7 +26,7 @@ class HomeViewModel @Inject constructor(
     private val groupRepository: GroupRepository,
     private val deviceRepository: DeviceRepository,
     private val deviceManager: DeviceManager,
-    @Dispatcher(ScrctlDispatchers.IO) private val ioDispatcher: CoroutineDispatcher,
+    @param:Dispatcher(ScrctlDispatchers.IO) private val ioDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
     private var defaultsEnsured = false
 
@@ -46,6 +45,9 @@ class HomeViewModel @Inject constructor(
     var batteryByDeviceId by mutableStateOf<Map<Long, Int?>>(emptyMap())
         private set
 
+    var isConnectedById by mutableStateOf<Map<Long, Boolean>>(emptyMap())
+        private set
+
     private val batteryJobs = mutableMapOf<Long, Job>()
     private val batteryUpdatedAt = mutableMapOf<Long, Long>()
     
@@ -58,6 +60,13 @@ class HomeViewModel @Inject constructor(
     init {
         observeGroups()
         observeDevices()
+
+        deviceManager.observeConnectedById()
+            .onEach { map ->
+                isConnectedById = map
+                refreshBatteries(allDevices, map.filterValues { it }.keys)
+            }
+            .launchIn(viewModelScope)
     }
 
     fun selectGroup(groupId: Long?) {
@@ -117,16 +126,12 @@ class HomeViewModel @Inject constructor(
             .onEach { deviceList ->
                 allDevices = deviceList
                 recomputeFilteredDevices()
-                refreshBatteries(deviceList)
+                refreshBatteries(deviceList, isConnectedById.filterValues { it }.keys)
             }
             .launchIn(viewModelScope)
     }
 
-    private fun refreshBatteries(devices: List<Device>) {
-        val connectedIds = devices
-            .filter { it.connectionState == DeviceConnectionState.CONNECTED.name }
-            .map { it.id }
-            .toSet()
+    private fun refreshBatteries(devices: List<Device>, connectedIds: Set<Long>) {
 
         // Remove stale entries/jobs for non-connected devices
         val toRemove = batteryByDeviceId.keys - connectedIds
@@ -209,4 +214,8 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    /** 代理 [DeviceManager.screencapPng]，供 Composable 使用。 */
+    suspend fun screencapPng(deviceId: Long): Result<ByteArray> {
+        return deviceManager.screencapPng(deviceId)
+    }
 }

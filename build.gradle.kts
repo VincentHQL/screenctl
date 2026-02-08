@@ -5,4 +5,6 @@ plugins {
     alias(libs.plugins.kotlin.compose) apply false
     alias(libs.plugins.hilt) apply false // 依赖注入
     alias(libs.plugins.ksp) apply false // kotlin符号处理工具，编译时代码处理工具
+    alias(libs.plugins.kotlin.multiplatform) apply false
+    alias(libs.plugins.android.library) apply false
 }

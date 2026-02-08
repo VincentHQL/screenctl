@@ -13,12 +13,12 @@ import kotlinx.coroutines.flow.Flow
 abstract class GroupDao : BaseDao<Group> {
 
     @Transaction
-    @Query("SELECT * FROM groups ORDER BY id DESC")
+    @Query("SELECT * FROM `groups` ORDER BY id DESC")
     abstract fun getAll(): Flow<List<Group>>
 
-    @Query("SELECT * FROM groups WHERE id = :id")
+    @Query("SELECT * FROM `groups` WHERE id = :id")
     abstract suspend fun getById(id: Long): Group?
 
-    @Query("DELETE FROM groups WHERE id = :id")
+    @Query("DELETE FROM `groups` WHERE id = :id")
     abstract suspend fun deleteById(id: Long): Int
 }

@@ -6,6 +6,49 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+import org.gradle.api.DefaultTask
+import org.gradle.api.GradleException
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.FileSystemOperations
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.TaskAction
+import javax.inject.Inject
+
+abstract class CopyServerApkToAssetsTask : DefaultTask() {
+    @get:InputDirectory
+    abstract val serverApkDir: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @get:Input
+    abstract val outputFileName: Property<String>
+
+    @get:Inject
+    abstract val fileSystemOperations: FileSystemOperations
+
+    @TaskAction
+    fun run() {
+        val apkDirFile = serverApkDir.get().asFile
+        val apkFile = apkDirFile
+            .listFiles()
+            ?.filter { it.isFile && it.extension.equals("apk", ignoreCase = true) }
+            ?.maxByOrNull { it.lastModified() }
+            ?: throw GradleException(
+                "No server APK found in: ${apkDirFile.absolutePath}. Ensure the server module produces an APK for this buildType."
+            )
+
+        fileSystemOperations.copy {
+            from(apkFile)
+            into(outputDir)
+            rename { outputFileName.get() }
+        }
+    }
+}
+
 android {
     namespace = "com.scrctl.client"
     compileSdk = Configurations.compileSdk
@@ -59,6 +102,27 @@ android {
                 srcDirs("src/main/aidl")
             }
         }
+    }
+}
+
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        val buildType = variant.buildType ?: "debug"
+        val variantCap = variant.name.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+        val buildTypeCap = buildType.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+
+        val serverProject = project(":server")
+        val serverAssembleTaskPath = ":server:assemble$buildTypeCap"
+
+        val copyServerApkTask = tasks.register<CopyServerApkToAssetsTask>("copyServerApkToAssets$variantCap") {
+            dependsOn(serverAssembleTaskPath)
+
+            serverApkDir.set(serverProject.layout.buildDirectory.dir("outputs/apk/$buildType"))
+            outputDir.set(layout.buildDirectory.dir("generated/serverApkAssets/${variant.name}"))
+            outputFileName.set("scrcpy-server.jar")
+        }
+
+        variant.sources.assets?.addGeneratedSourceDirectory(copyServerApkTask, CopyServerApkToAssetsTask::outputDir)
     }
 }
 

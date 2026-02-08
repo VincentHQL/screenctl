@@ -24,3 +24,5 @@ dependencyResolutionManagement {
 rootProject.name = "scrctl"
 include(":server")
 include(":client")
+include(":desktop")
+include(":agent")
