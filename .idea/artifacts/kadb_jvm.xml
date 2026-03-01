@@ -1,0 +1,8 @@
+<component name="ArtifactManager">
+  <artifact type="jar" name="kadb-jvm">
+    <output-path>$PROJECT_DIR$/kadb/build/libs</output-path>
+    <root id="archive" name="kadb-jvm.jar">
+      <element id="module-output" name="scrctl.kadb.jvmMain" />
+    </root>
+  </artifact>
+</component>

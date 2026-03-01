@@ -14,7 +14,6 @@ import com.scrctl.client.core.repository.DeviceRepository
 import com.scrctl.client.core.repository.GroupRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -42,31 +41,23 @@ class HomeViewModel @Inject constructor(
     var devices by mutableStateOf(listOf<Device>())
         private set
 
-    var batteryByDeviceId by mutableStateOf<Map<Long, Int?>>(emptyMap())
-        private set
-
-    var isConnectedById by mutableStateOf<Map<Long, Boolean>>(emptyMap())
-        private set
-
-    private val batteryJobs = mutableMapOf<Long, Job>()
-    private val batteryUpdatedAt = mutableMapOf<Long, Long>()
-    
     var searchQuery by mutableStateOf("")
         private set
     
     var gridColumns by mutableStateOf(2)
         private set
+
+    var isConnectedById by mutableStateOf<Map<Long, Boolean>>(emptyMap())
+        private set
+
+    var connectionErrorById by mutableStateOf<Map<Long, String>>(emptyMap())
+        private set
     
     init {
         observeGroups()
         observeDevices()
-
-        deviceManager.observeConnectedById()
-            .onEach { map ->
-                isConnectedById = map
-                refreshBatteries(allDevices, map.filterValues { it }.keys)
-            }
-            .launchIn(viewModelScope)
+        observeConnectivity()
+        observeConnectionErrors()
     }
 
     fun selectGroup(groupId: Long?) {
@@ -82,7 +73,6 @@ class HomeViewModel @Inject constructor(
     fun updateGridColumns(columns: Int) {
         gridColumns = columns
     }
-
 
     fun addGroup(name: String) {
         val trimmed = name.trim()
@@ -126,59 +116,24 @@ class HomeViewModel @Inject constructor(
             .onEach { deviceList ->
                 allDevices = deviceList
                 recomputeFilteredDevices()
-                refreshBatteries(deviceList, isConnectedById.filterValues { it }.keys)
             }
             .launchIn(viewModelScope)
     }
 
-    private fun refreshBatteries(devices: List<Device>, connectedIds: Set<Long>) {
-
-        // Remove stale entries/jobs for non-connected devices
-        val toRemove = batteryByDeviceId.keys - connectedIds
-        if (toRemove.isNotEmpty()) {
-            val next = batteryByDeviceId.toMutableMap()
-            toRemove.forEach {
-                batteryJobs.remove(it)?.cancel()
-                batteryUpdatedAt.remove(it)
-                next.remove(it)
+    private fun observeConnectivity() {
+        deviceManager.observeConnectedById()
+            .onEach { snapshot ->
+                isConnectedById = snapshot
             }
-            batteryByDeviceId = next
-        }
-
-        // Refresh connected devices (throttled)
-        for (id in connectedIds) {
-            if (batteryJobs[id]?.isActive == true) continue
-            val now = System.currentTimeMillis()
-            val last = batteryUpdatedAt[id] ?: 0L
-            if (now - last < 20_000) continue
-
-            batteryJobs[id] = viewModelScope.launch {
-                val out = withContext(ioDispatcher) {
-                    deviceManager.shell(id, "dumpsys battery")
-                }
-
-                val percent = if (out.isSuccess) {
-                    parseBatteryPercent(out.getOrNull().orEmpty())
-                } else {
-                    null
-                }
-
-                val next = batteryByDeviceId.toMutableMap()
-                next[id] = percent
-                batteryByDeviceId = next
-                batteryUpdatedAt[id] = System.currentTimeMillis()
-            }
-        }
+            .launchIn(viewModelScope)
     }
 
-    private fun parseBatteryPercent(output: String): Int? {
-        val level = Regex("(?m)^\\s*level:\\s*(\\d+)\\s*$").find(output)?.groupValues?.getOrNull(1)?.toIntOrNull()
-        val scale = Regex("(?m)^\\s*scale:\\s*(\\d+)\\s*$").find(output)?.groupValues?.getOrNull(1)?.toIntOrNull()
-        return when {
-            level == null -> null
-            scale != null && scale > 0 -> ((level.toDouble() / scale.toDouble()) * 100.0).toInt().coerceIn(0, 100)
-            else -> level.coerceIn(0, 100)
-        }
+    private fun observeConnectionErrors() {
+        deviceManager.observeErrorById()
+            .onEach { snapshot ->
+                connectionErrorById = snapshot
+            }
+            .launchIn(viewModelScope)
     }
 
     private fun ensureDefaultGroupsIfNeeded(current: List<Group>) {
@@ -214,8 +169,15 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    /** 代理 [DeviceManager.screencapPng]，供 Composable 使用。 */
-    suspend fun screencapPng(deviceId: Long): Result<ByteArray> {
-        return deviceManager.screencapPng(deviceId)
+    /** 通过 [DeviceManager.getAgentClient] 拉取首页缩略图。 */
+    suspend fun screencapThumbnailPng(deviceId: Long, width: Int, height: Int): Result<ByteArray> {
+        return runCatching {
+            val agentClient = deviceManager.getAgentClient(deviceId)
+                ?: throw IllegalStateException("设备未连接或 Agent 不可用")
+            agentClient.screenshot(width = width, height = height)
+        }
     }
+
+
+
 }

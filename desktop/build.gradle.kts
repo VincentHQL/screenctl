@@ -13,9 +13,10 @@ dependencies {
     implementation(compose.material3)
     implementation(compose.materialIconsExtended)
     implementation(compose.ui)
-    implementation(libs.kadb)
+    // implementation(libs.kadb)
     implementation(libs.kotlinx.coroutines.swing)
     implementation(libs.oshi.core)
+    implementation(project(":kadb"))
     runtimeOnly(libs.slf4j.nop)
 }
 

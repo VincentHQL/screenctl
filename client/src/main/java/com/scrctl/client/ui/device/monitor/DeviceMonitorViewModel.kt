@@ -16,7 +16,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.time.Instant
+import java.util.Locale
 import javax.inject.Inject
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -48,7 +48,7 @@ class DeviceMonitorViewModel @Inject constructor(
 		val battery: BatteryInfo?,
 		val storage: StorageInfo?,
 		val uptimeText: String?,
-		val lastUpdated: Instant,
+		val lastUpdatedAtMs: Long,
 	)
 
 	sealed class UiState {
@@ -120,7 +120,7 @@ class DeviceMonitorViewModel @Inject constructor(
 	}
 
 	private suspend fun sampleOnce(deviceId: Long): Result<Metrics> = runCatching {
-		val now = Instant.now()
+		val now = System.currentTimeMillis()
 
 		val cpuPercent = sampleCpu(deviceId)
 		val memPercent = sampleMem(deviceId)
@@ -136,14 +136,14 @@ class DeviceMonitorViewModel @Inject constructor(
 			battery = battery,
 			storage = storage,
 			uptimeText = uptimeText,
-			lastUpdated = now,
+			lastUpdatedAtMs = now,
 		)
 	}
 
 	private data class CpuSample(val total: Long, val idle: Long)
 
 	private suspend fun sampleCpu(deviceId: Long): Int? {
-		val stat = deviceManager.shell(deviceId, "cat /proc/stat").getOrNull() ?: return null
+		val stat = shell(deviceId, "cat /proc/stat").getOrNull() ?: return null
 		val first = stat.lineSequence().firstOrNull { it.startsWith("cpu ") } ?: return null
 		val parts = first.split(Regex("\\s+")).filter { it.isNotBlank() }
 		if (parts.size < 5) return null
@@ -171,7 +171,7 @@ class DeviceMonitorViewModel @Inject constructor(
 	}
 
 	private suspend fun sampleMem(deviceId: Long): Int? {
-		val meminfo = deviceManager.shell(deviceId, "cat /proc/meminfo").getOrNull() ?: return null
+		val meminfo = shell(deviceId, "cat /proc/meminfo").getOrNull() ?: return null
 		val totalKb = Regex("(?m)^MemTotal:\\s+(\\d+)\\s+kB").find(meminfo)?.groupValues?.getOrNull(1)?.toLongOrNull()
 		val availKb = Regex("(?m)^MemAvailable:\\s+(\\d+)\\s+kB").find(meminfo)?.groupValues?.getOrNull(1)?.toLongOrNull()
 		if (totalKb == null || availKb == null || totalKb <= 0) return null
@@ -182,7 +182,7 @@ class DeviceMonitorViewModel @Inject constructor(
 	private data class NetSample(val rxBytes: Long, val txBytes: Long, val atMs: Long)
 
 	private suspend fun sampleNet(deviceId: Long): NetRate? {
-		val text = deviceManager.shell(deviceId, "cat /proc/net/dev").getOrNull() ?: return null
+		val text = shell(deviceId, "cat /proc/net/dev").getOrNull() ?: return null
 		val lines = text.lineSequence().drop(2)
 		var rx = 0L
 		var tx = 0L
@@ -210,7 +210,7 @@ class DeviceMonitorViewModel @Inject constructor(
 	}
 
 	private suspend fun sampleBattery(deviceId: Long): BatteryInfo? {
-		val out = deviceManager.shell(deviceId, "dumpsys battery").getOrNull() ?: return null
+		val out = shell(deviceId, "dumpsys battery").getOrNull() ?: return null
 		val level = Regex("(?m)^\\s*level:\\s*(\\d+)").find(out)?.groupValues?.getOrNull(1)?.toIntOrNull()
 		val statusCode = Regex("(?m)^\\s*status:\\s*(\\d+)").find(out)?.groupValues?.getOrNull(1)?.toIntOrNull()
 		val tempTenth = Regex("(?m)^\\s*temperature:\\s*(\\d+)").find(out)?.groupValues?.getOrNull(1)?.toIntOrNull()
@@ -228,7 +228,7 @@ class DeviceMonitorViewModel @Inject constructor(
 	}
 
 	private suspend fun sampleStorage(deviceId: Long): StorageInfo? {
-		val df = deviceManager.shell(deviceId, "df -h /data").getOrNull() ?: return null
+		val df = shell(deviceId, "df -h /data").getOrNull() ?: return null
 		val line = df.lineSequence()
 			.map { it.trim() }
 			.firstOrNull { it.isNotBlank() && !it.startsWith("Filesystem") }
@@ -246,18 +246,30 @@ class DeviceMonitorViewModel @Inject constructor(
 	}
 
 	private suspend fun sampleUptime(deviceId: Long): String? {
-		val out = deviceManager.shell(deviceId, "cat /proc/uptime").getOrNull() ?: return null
+		val out = shell(deviceId, "cat /proc/uptime").getOrNull() ?: return null
 		val first = out.trim().split(Regex("\\s+")).getOrNull(0) ?: return null
 		val seconds = first.toDoubleOrNull() ?: return null
 		val total = seconds.toLong()
 		val h = total / 3600
 		val m = (total % 3600) / 60
 		val s = total % 60
-		return String.format("%02d:%02d:%02d", h, m, s)
+		return String.format(Locale.getDefault(), "%02d:%02d:%02d", h, m, s)
 	}
 
-	/** 代理 [DeviceManager.screencapPng]，供 Composable 使用。 */
+	/** 通过 [DeviceManager.getAgentClient] 截取屏幕，供 Composable 使用。 */
 	suspend fun screencapPng(deviceId: Long): Result<ByteArray> {
-		return deviceManager.screencapPng(deviceId)
+		return runCatching {
+			val agentClient = deviceManager.getAgentClient(deviceId)
+				?: throw IllegalStateException("设备未连接或 Agent 不可用")
+			agentClient.screenshot()
+		}
+	}
+
+	private fun shell(deviceId: Long, command: String): Result<String> {
+		return runCatching {
+			val adbClient = deviceManager.getAdbClient(deviceId)
+				?: throw IllegalStateException("设备未连接")
+			adbClient.shell(command).allOutput
+		}
 	}
 }

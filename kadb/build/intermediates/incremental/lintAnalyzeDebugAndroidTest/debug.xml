@@ -1,0 +1,30 @@
+<variant
+    name="debug"
+    package="com.flyfishxu.kadb"
+    minSdkVersion="23"
+    targetSdkVersion="23"
+    debuggable="true"
+    mergedManifest="build/intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml"
+    partialResultsDir="build/intermediates/android_test_lint_partial_results/debug/lintAnalyzeDebugAndroidTest/out"
+    desugaredMethodsFiles="/Users/wuzy/.gradle/caches/8.11.1/transforms/fa6462c59747831a892ea728bf43a7d0/transformed/D8BackportedDesugaredMethods.txt">
+  <buildFeatures
+      namespacing="REQUIRED"/>
+  <sourceProviders>
+  </sourceProviders>
+  <testSourceProviders>
+    <sourceProvider
+        manifests="src/androidInstrumentedTest/AndroidManifest.xml"
+        javaDirectories="src/androidTest/java:src/androidTestDebug/java:src/androidInstrumentedTest/kotlin:src/androidTest/kotlin:src/androidTestDebug/kotlin"
+        resDirectories="src/androidTest/res:src/androidInstrumentedTest/res:src/androidTestDebug/res:src/androidInstrumentedTestDebug/res"
+        assetsDirectories="src/androidTest/assets:src/androidInstrumentedTest/assets:src/androidTestDebug/assets:src/androidInstrumentedTestDebug/assets"
+        androidTest="true"/>
+  </testSourceProviders>
+  <testFixturesSourceProviders>
+  </testFixturesSourceProviders>
+  <artifact
+      type="INSTRUMENTATION_TEST"
+      applicationId="com.flyfishxu.kadb.test"
+      generatedResourceFolders="build/generated/res/resValues/androidTest/debug"
+      desugaredMethodsFiles="/Users/wuzy/.gradle/caches/8.11.1/transforms/fa6462c59747831a892ea728bf43a7d0/transformed/D8BackportedDesugaredMethods.txt">
+  </artifact>
+</variant>

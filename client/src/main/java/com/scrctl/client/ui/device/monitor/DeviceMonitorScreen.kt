@@ -35,8 +35,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.scrctl.client.ui.components.DeviceView
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -58,7 +59,7 @@ fun DeviceMonitorScreen(
     val colors = MaterialTheme.colorScheme
 
     val timeFormatter = remember {
-        DateTimeFormatter.ofPattern("HH:mm:ss")
+        SimpleDateFormat("HH:mm:ss", Locale.getDefault())
     }
 
     Scaffold(
@@ -118,7 +119,7 @@ fun DeviceMonitorScreen(
 						} else {
 							// DeviceView 在 composable 可见时自动轮询 screencap
 							DeviceView(
-							screencapProvider = { viewModel.screencapPng(id) },
+                            screencapProvider = { _, _ -> viewModel.screencapPng(id) },
 								modifier = Modifier.fillMaxSize(),
 								refreshIntervalMs = 500L,
 							)
@@ -154,7 +155,7 @@ fun DeviceMonitorScreen(
                             InfoCard(
                                 title = "CPU",
                                 value = m.cpuPercent?.let { "$it%" } ?: "-",
-                                subtitle = "更新: ${timeFormatter.format(m.lastUpdated.atZone(ZoneId.systemDefault()))}",
+                                subtitle = "更新: ${timeFormatter.format(Date(m.lastUpdatedAtMs))}",
                                 modifier = Modifier.weight(1f)
                             )
                             InfoCard(
@@ -264,8 +265,8 @@ private fun formatRate(bytesPerSec: Long?): String {
     val kb = b / 1024.0
     val mb = kb / 1024.0
     return when {
-        mb >= 1.0 -> String.format("%.1f MB/s", mb)
-        kb >= 1.0 -> String.format("%.0f KB/s", kb)
-        else -> String.format("%.0f B/s", b)
+        mb >= 1.0 -> String.format(Locale.getDefault(), "%.1f MB/s", mb)
+        kb >= 1.0 -> String.format(Locale.getDefault(), "%.0f KB/s", kb)
+        else -> String.format(Locale.getDefault(), "%.0f B/s", b)
     }
 }

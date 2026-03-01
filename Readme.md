@@ -420,9 +420,9 @@ adb forward --remove tcp:8080
 adb forward --remove-all
 
 # 然后重新转发
-adb forward tcp:8080 localabstract:scrcpy_monitor
+adb forward tcp:8080 localabstract:agent
 
-adb shell CLASSPATH=/data/local/tmp/scrcpy-server.jar \
-    app_process / com.genymobile.scrcpy.Server 3.3.3 monitor=true
+adb shell CLASSPATH=/data/agent-debug.apk \
+    app_process / com.scrctl.agent.Server 3.3.3 monitor=true
     
 ```

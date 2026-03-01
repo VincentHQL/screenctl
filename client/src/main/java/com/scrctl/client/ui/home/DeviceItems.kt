@@ -29,6 +29,8 @@ import com.scrctl.client.core.database.model.Device
 import com.scrctl.client.core.devicemanager.DeviceConnectionState
 import com.scrctl.client.ui.components.DeviceView
 
+private const val OFFLINE_STATUS_MAX_LEN = 12
+
 // ── List row (single-column layout) ─────────────────────────────────────────────
 
 @Composable
@@ -36,7 +38,8 @@ internal fun DeviceListRow(
     device: Device,
     batteryPercent: Int?,
     isOnline: Boolean,
-    screencapProvider: (suspend (Long) -> Result<ByteArray>)?,
+    errorText: String?,
+    screencapProvider: (suspend (Long, Int, Int) -> Result<ByteArray>)?,
     onClick: () -> Unit,
 ) {
     val shape = RoundedCornerShape(16.dp)
@@ -44,7 +47,7 @@ internal fun DeviceListRow(
     val primary = MaterialTheme.colorScheme.primary
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
 
-    val statusText = if (isOnline) "在线" else "离线"
+    val statusText = if (isOnline) "在线" else formatOfflineStatus(errorText)
     val statusColor = if (isOnline) primary else onSurfaceVariant.copy(alpha = 0.7f)
 
     Surface(
@@ -73,7 +76,7 @@ internal fun DeviceListRow(
             ) {
                 if (isOnline && screencapProvider != null) {
                     DeviceView(
-                        screencapProvider = { screencapProvider(device.id) },
+						screencapProvider = { width, height -> screencapProvider(device.id, width, height) },
                         refreshIntervalMs = 1200L,
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -140,14 +143,15 @@ internal fun DeviceCard(
     device: Device,
     batteryPercent: Int?,
     isOnline: Boolean,
-    screencapProvider: (suspend (Long) -> Result<ByteArray>)?,
+    errorText: String?,
+    screencapProvider: (suspend (Long, Int, Int) -> Result<ByteArray>)?,
     onClick: () -> Unit,
 ) {
     val shape = RoundedCornerShape(16.dp)
     val borderColor = MaterialTheme.colorScheme.outlineVariant
     val primary = MaterialTheme.colorScheme.primary
 
-    val statusText = if (isOnline) "在线" else "离线"
+    val statusText = if (isOnline) "在线" else formatOfflineStatus(errorText)
     val statusColor = if (isOnline) primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
 
     Card(
@@ -171,7 +175,7 @@ internal fun DeviceCard(
             ) {
                 if (isOnline && screencapProvider != null) {
                     DeviceView(
-                        screencapProvider = { screencapProvider(device.id) },
+						screencapProvider = { width, height -> screencapProvider(device.id, width, height) },
                         refreshIntervalMs = 800L,
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -297,4 +301,12 @@ internal fun StatusDot(
             .clip(CircleShape)
             .background(baseColor.copy(alpha = if (isOnline) pulseAlpha else 0.85f)),
     )
+}
+
+private fun formatOfflineStatus(errorText: String?): String {
+    val raw = errorText?.trim().takeUnless { it.isNullOrEmpty() } ?: return "离线"
+    if (raw.length <= OFFLINE_STATUS_MAX_LEN) {
+        return raw
+    }
+    return raw.take(OFFLINE_STATUS_MAX_LEN - 1) + "…"
 }

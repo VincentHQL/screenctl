@@ -22,28 +22,4 @@ data class Device(
 
     @ColumnInfo(name = "device_port")
     var devicePort: Int = 5555,
-
-    @ColumnInfo(name = "model")
-    var model: String = "",
-
-    @ColumnInfo(name = "android_version")
-    var androidVersion: String = "",
-
-    @ColumnInfo(name = "api_level")
-    var apiLevel: String = "",
-
-    @ColumnInfo(name = "brand")
-    var brand: String = "",
-
-    @ColumnInfo(name = "manufacturer")
-    var manufacturer: String = "",
-
-    @ColumnInfo(name = "serial_number")
-    var serialNumber: String = "",
-
-    @ColumnInfo(name = "cpu_abi")
-    var cpuAbi: String = "",
-
-    @ColumnInfo(name = "updated_at")
-    var updatedAt: Long = 0L,
 )

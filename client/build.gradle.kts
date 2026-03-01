@@ -17,7 +17,7 @@ import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
 import javax.inject.Inject
 
-abstract class CopyServerApkToAssetsTask : DefaultTask() {
+abstract class CopyAgentApkToAssetsTask : DefaultTask() {
     @get:InputDirectory
     abstract val serverApkDir: DirectoryProperty
 
@@ -111,18 +111,18 @@ androidComponents {
         val variantCap = variant.name.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
         val buildTypeCap = buildType.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
 
-        val serverProject = project(":server")
-        val serverAssembleTaskPath = ":server:assemble$buildTypeCap"
+        val serverProject = project(":agent")
+        val serverAssembleTaskPath = ":agent:assemble$buildTypeCap"
 
-        val copyServerApkTask = tasks.register<CopyServerApkToAssetsTask>("copyServerApkToAssets$variantCap") {
+        val copyServerApkTask = tasks.register<CopyAgentApkToAssetsTask>("copyServerApkToAssets$variantCap") {
             dependsOn(serverAssembleTaskPath)
 
             serverApkDir.set(serverProject.layout.buildDirectory.dir("outputs/apk/$buildType"))
-            outputDir.set(layout.buildDirectory.dir("generated/serverApkAssets/${variant.name}"))
-            outputFileName.set("scrcpy-server.jar")
+            outputDir.set(layout.buildDirectory.dir("generated/agentApkAssets/${variant.name}"))
+            outputFileName.set("agent-server.jar")
         }
 
-        variant.sources.assets?.addGeneratedSourceDirectory(copyServerApkTask, CopyServerApkToAssetsTask::outputDir)
+        variant.sources.assets?.addGeneratedSourceDirectory(copyServerApkTask, CopyAgentApkToAssetsTask::outputDir)
     }
 }
 
@@ -140,7 +140,7 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
 
     // Icons (extended set, used by Home screen view toggles)
-    implementation("androidx.compose.material:material-icons-extended")
+    implementation(libs.androidx.material.icons.extended)
 
     // Image Loader
     implementation(libs.coil.kt.compose)
@@ -148,6 +148,7 @@ dependencies {
     // Dependency injection
     implementation(libs.androidx.hilt.navigation.compose)
     implementation(libs.hilt.android)
+    implementation(project(":kadb"))
     ksp(libs.hilt.compiler)
 
     // Networking
@@ -157,7 +158,7 @@ dependencies {
     implementation("com.google.code.gson:gson:2.10.1")
 
     // ADB (Kadb)
-    implementation(libs.kadb)
+    // implementation(libs.kadb)
 
     // Database
     implementation(libs.androidx.room.runtime)

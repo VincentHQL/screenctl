@@ -24,28 +24,6 @@ class DeviceRepository @Inject constructor(
         deviceDao.update(device)
     }
 
-    suspend fun updateDeviceInfo(
-        id: Long,
-        model: String,
-        androidVersion: String,
-        apiLevel: String,
-        brand: String,
-        manufacturer: String,
-        serialNumber: String,
-        cpuAbi: String,
-        updatedAt: Long = System.currentTimeMillis(),
-    ): Int = deviceDao.updateDeviceInfo(
-        id = id,
-        model = model,
-        androidVersion = androidVersion,
-        apiLevel = apiLevel,
-        brand = brand,
-        manufacturer = manufacturer,
-        serialNumber = serialNumber,
-        cpuAbi = cpuAbi,
-        updatedAt = updatedAt,
-    )
-
     suspend fun deleteDeviceById(id: Long): Int = deviceDao.deleteById(id)
 
     suspend fun deleteDevicesByGroupId(groupId: Long): Int = deviceDao.deleteByGroupId(groupId)

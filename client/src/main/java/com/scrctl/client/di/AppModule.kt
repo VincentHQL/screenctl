@@ -7,6 +7,7 @@ import com.scrctl.client.core.ScrctlDispatchers
 import com.scrctl.client.core.database.ScrctlDatabase
 import com.scrctl.client.core.database.dao.DeviceDao
 import com.scrctl.client.core.database.dao.GroupDao
+import com.scrctl.client.core.repository.DeviceRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -14,12 +15,8 @@ import dagger.hilt.components.SingletonComponent
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
-import okhttp3.OkHttpClient
-import okhttp3.logging.HttpLoggingInterceptor
-import com.scrctl.client.BuildConfig
 import com.scrctl.client.core.devicemanager.DeviceManager
 import com.scrctl.client.core.devicemanager.DeviceManagerImpl
-import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
 
 @Module
@@ -48,8 +45,9 @@ object AppModule {
     @Singleton
     fun provideDeviceManager(
         @ApplicationContext ctx: Context,
-        @Dispatcher(ScrctlDispatchers.IO) io: CoroutineDispatcher,
-    ): DeviceManager {
-        return DeviceManagerImpl(ctx, io)
+        deviceDao: DeviceDao,
+        @Dispatcher(ScrctlDispatchers.IO) io: CoroutineDispatcher
+    ): DeviceManagerImpl {
+        return DeviceManagerImpl(ctx, deviceDao, io)
     }
 }

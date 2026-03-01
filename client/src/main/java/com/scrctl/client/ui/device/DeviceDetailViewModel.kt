@@ -99,7 +99,7 @@ class DeviceDetailViewModel @Inject constructor(
         batteryLoading = true
         viewModelScope.launch {
             val result = withContext(ioDispatcher) {
-                deviceManager.shell(device.id, "dumpsys battery")
+                shell(device.id, "dumpsys battery")
             }
 
             batteryLoading = false
@@ -141,6 +141,14 @@ class DeviceDetailViewModel @Inject constructor(
             withContext(ioDispatcher) {
                 deviceRepository.deleteDeviceById(deviceId)
             }
+        }
+    }
+
+    private fun shell(deviceId: Long, command: String): Result<String> {
+        return runCatching {
+            val adbClient = deviceManager.getAdbClient(deviceId)
+                ?: throw IllegalStateException("设备未连接")
+            adbClient.shell(command).allOutput
         }
     }
 }

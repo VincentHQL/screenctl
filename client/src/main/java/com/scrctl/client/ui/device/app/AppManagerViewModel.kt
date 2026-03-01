@@ -108,14 +108,14 @@ class AppManagerViewModel @Inject constructor(
 		viewModelScope.launch {
 			val result = withContext(ioDispatcher) {
 				runCatching {
-					val dumpsys = deviceManager.shell(id, "dumpsys package $packageName").getOrNull().orEmpty()
+					val dumpsys = shell(id, "dumpsys package $packageName").getOrNull().orEmpty()
 					val versionName = Regex("(?m)^\\s*versionName=(.+)$").find(dumpsys)?.groupValues?.getOrNull(1)?.trim()
 					val enabled = Regex("(?m)^\\s*enabled=(true|false)\\b").find(dumpsys)?.groupValues?.getOrNull(1)?.toBooleanStrictOrNull()
 
-					val pid = deviceManager.shell(id, "pidof $packageName").getOrNull().orEmpty().trim()
+					val pid = shell(id, "pidof $packageName").getOrNull().orEmpty().trim()
 					val isRunning = pid.isNotBlank()
 
-					val apkPaths = deviceManager.shell(id, "pm path $packageName")
+					val apkPaths = shell(id, "pm path $packageName")
 						.getOrNull()
 						.orEmpty()
 						.lineSequence()
@@ -159,7 +159,7 @@ class AppManagerViewModel @Inject constructor(
 		val id = deviceId ?: return Result.failure(IllegalStateException("deviceId 无效"))
 		return withContext(ioDispatcher) {
 			runCatching {
-				val out = deviceManager.shell(id, command)
+				val out = shell(id, command)
 				if (out.isFailure) throw (out.exceptionOrNull() ?: IllegalStateException("命令执行失败"))
 			}
 		}
@@ -167,7 +167,7 @@ class AppManagerViewModel @Inject constructor(
 
 	private suspend fun listPackages(deviceId: Long, userOnly: Boolean): List<AppItem> {
 		val flag = if (userOnly) "-3" else "-s"
-		val out = deviceManager.shell(deviceId, "pm list packages $flag -f").getOrNull().orEmpty()
+		val out = shell(deviceId, "pm list packages $flag -f").getOrNull().orEmpty()
 		return out.lineSequence()
 			.map { it.trim() }
 			.filter { it.startsWith("package:") }
@@ -185,13 +185,17 @@ class AppManagerViewModel @Inject constructor(
 	private fun mergePackages(user: List<AppItem>, system: List<AppItem>): List<AppItem> {
 		val byPkg = linkedMapOf<String, AppItem>()
 		user.forEach { byPkg[it.packageName] = it }
-		system.forEach { byPkg.putIfAbsent(it.packageName, it) }
+		system.forEach {
+			if (!byPkg.containsKey(it.packageName)) {
+				byPkg[it.packageName] = it
+			}
+		}
 		return byPkg.values.toList().sortedBy { it.packageName }
 	}
 
 	private suspend fun loadBottomInfo(deviceId: Long): BottomInfo {
 		val storageText = runCatching {
-			val df = deviceManager.shell(deviceId, "df -h /data").getOrNull().orEmpty()
+			val df = shell(deviceId, "df -h /data").getOrNull().orEmpty()
 			val line = df.lineSequence().map { it.trim() }.firstOrNull { it.isNotBlank() && !it.startsWith("Filesystem") }
 			if (line == null) return@runCatching "剩余空间: -"
 			val cols = line.split(Regex("\\s+")).filter { it.isNotBlank() }
@@ -201,7 +205,7 @@ class AppManagerViewModel @Inject constructor(
 		}.getOrDefault("剩余空间: -")
 
 		val memoryText = runCatching {
-			val meminfo = deviceManager.shell(deviceId, "cat /proc/meminfo").getOrNull().orEmpty()
+			val meminfo = shell(deviceId, "cat /proc/meminfo").getOrNull().orEmpty()
 			val totalKb = Regex("(?m)^MemTotal:\\s+(\\d+)\\s+kB").find(meminfo)?.groupValues?.getOrNull(1)?.toLongOrNull()
 			val availKb = Regex("(?m)^MemAvailable:\\s+(\\d+)\\s+kB").find(meminfo)?.groupValues?.getOrNull(1)?.toLongOrNull()
 			if (totalKb == null || availKb == null || totalKb <= 0) return@runCatching "内存占用: -"
@@ -210,5 +214,13 @@ class AppManagerViewModel @Inject constructor(
 		}.getOrDefault("内存占用: -")
 
 		return BottomInfo(storageText = storageText, memoryText = memoryText)
+	}
+
+	private fun shell(deviceId: Long, command: String): Result<String> {
+		return runCatching {
+			val adbClient = deviceManager.getAdbClient(deviceId)
+				?: throw IllegalStateException("设备未连接")
+			adbClient.shell(command).allOutput
+		}
 	}
 }
