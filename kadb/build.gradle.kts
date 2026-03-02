@@ -6,13 +6,13 @@ plugins {
 kotlin {
     jvm {
         kotlin {
-            jvmToolchain(21)
+            jvmToolchain(Configurations.jdkVersion)
         }
     }
 
     androidTarget {
         kotlin {
-            jvmToolchain(21)
+            jvmToolchain(Configurations.jdkVersion)
         }
     }
 

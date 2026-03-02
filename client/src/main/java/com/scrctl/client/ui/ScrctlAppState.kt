@@ -11,6 +11,10 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.scrctl.client.ui.device.DeviceAddScreen
+import com.scrctl.client.ui.device.DeviceDetailScreen
+import com.scrctl.client.ui.device.app.AppManagerScreen
+import com.scrctl.client.ui.device.file.FileManagerScreen
+import com.scrctl.client.ui.device.monitor.DeviceMonitorScreen
 import com.scrctl.client.ui.device.remote.RemoteControlScreen
 import com.scrctl.client.ui.home.HomeScreen
 
@@ -20,6 +24,22 @@ sealed class Screen(val route: String) {
 
     object DeviceControl : Screen("control/{deviceId}") {
         fun createRoute(deviceId: String) = "control/$deviceId"
+    }
+
+    object DeviceDetail : Screen("detail/{deviceId}") {
+        fun createRoute(deviceId: String) = "detail/$deviceId"
+    }
+
+    object FileManager : Screen("file_manager/{deviceId}") {
+        fun createRoute(deviceId: String) = "file_manager/$deviceId"
+    }
+
+    object AppManager : Screen("app_manager/{deviceId}") {
+        fun createRoute(deviceId: String) = "app_manager/$deviceId"
+    }
+
+    object DeviceMonitor : Screen("device_monitor/{deviceId}") {
+        fun createRoute(deviceId: String) = "device_monitor/$deviceId"
     }
 }
 
@@ -38,6 +58,22 @@ class ScrctlAppState(
 
     fun navigateToRemoteControl(deviceId: Long) {
         navController.navigate(Screen.DeviceControl.createRoute(deviceId.toString()))
+    }
+
+    fun navigateToDeviceDetail(deviceId: Long) {
+        navController.navigate(Screen.DeviceDetail.createRoute(deviceId.toString()))
+    }
+
+    fun navigateToFileManager(deviceId: Long) {
+        navController.navigate(Screen.FileManager.createRoute(deviceId.toString()))
+    }
+
+    fun navigateToAppManager(deviceId: Long) {
+        navController.navigate(Screen.AppManager.createRoute(deviceId.toString()))
+    }
+
+    fun navigateToDeviceMonitor(deviceId: Long) {
+        navController.navigate(Screen.DeviceMonitor.createRoute(deviceId.toString()))
     }
 
     fun navigateToDeviceAdd() {
@@ -62,7 +98,7 @@ fun ScrctlNavHost(
         composable(Screen.Home.route) {
             HomeScreen(
                 onDeviceClick = { device ->
-                    appState.navigateToRemoteControl(device.id)
+                    appState.navigateToDeviceDetail(device.id)
                 },
                 onAddDevice = { appState.navigateToDeviceAdd() }
             )
@@ -76,7 +112,67 @@ fun ScrctlNavHost(
             )
         }
 
-        // 设备操控页（占位实现，避免点击设备后导航崩溃）
+        // 设备详情
+        composable(
+            route = Screen.DeviceDetail.route,
+            arguments = listOf(
+                navArgument("deviceId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val deviceId = backStackEntry.arguments?.getString("deviceId") ?: return@composable
+            DeviceDetailScreen(
+                deviceId = deviceId.toLong(),
+                onBackClick = { appState.navigateBack() },
+                onEnterControl = { appState.navigateToRemoteControl(deviceId.toLong()) },
+                onFileManager = { appState.navigateToFileManager(deviceId.toLong()) },
+                onAppManager = { appState.navigateToAppManager(deviceId.toLong()) },
+                onDeviceMonitor = { appState.navigateToDeviceMonitor(deviceId.toLong()) }
+            )
+        }
+
+        // 文件管理
+        composable(
+            route = Screen.FileManager.route,
+            arguments = listOf(
+                navArgument("deviceId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val deviceId = backStackEntry.arguments?.getString("deviceId") ?: return@composable
+            FileManagerScreen(
+                deviceId = deviceId.toLong(),
+                onBackClick = { appState.navigateBack() }
+            )
+        }
+
+        // 应用管理
+        composable(
+            route = Screen.AppManager.route,
+            arguments = listOf(
+                navArgument("deviceId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val deviceId = backStackEntry.arguments?.getString("deviceId") ?: return@composable
+            AppManagerScreen(
+                deviceId = deviceId.toLong(),
+                onBackClick = { appState.navigateBack() }
+            )
+        }
+
+        // 设备监控
+        composable(
+            route = Screen.DeviceMonitor.route,
+            arguments = listOf(
+                navArgument("deviceId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val deviceId = backStackEntry.arguments?.getString("deviceId") ?: return@composable
+            DeviceMonitorScreen(
+                deviceId = deviceId.toLong(),
+                onBackClick = { appState.navigateBack() }
+            )
+        }
+
+        // 设备操控页
         composable(
             route = Screen.DeviceControl.route,
             arguments = listOf(

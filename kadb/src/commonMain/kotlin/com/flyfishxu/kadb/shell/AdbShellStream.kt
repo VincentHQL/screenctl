@@ -26,9 +26,6 @@ class AdbShellStream(
                     errorOutput.append(String(packet.payload))
                 }
 
-                else -> {
-                    throw IllegalStateException("Unexpected shell packet: $packet")
-                }
             }
         }
     }

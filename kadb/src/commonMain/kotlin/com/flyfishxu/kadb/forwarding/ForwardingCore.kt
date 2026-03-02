@@ -101,7 +101,12 @@ internal abstract class BaseForwarder(
             val client = serverRef.accept()
 
             clientExecutor?.execute {
-                handleClient(client)
+                try {
+                    handleClient(client)
+                } catch (e: Throwable) {
+                    log { "Forwarder client handler failed: ${e.message}" }
+                    runCatching { client.close() }
+                }
             }
         }
     }

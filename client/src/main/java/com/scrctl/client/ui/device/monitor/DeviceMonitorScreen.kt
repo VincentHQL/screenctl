@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -43,12 +42,12 @@ import kotlin.math.roundToInt
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeviceMonitorScreen(
-    deviceId: String,
+    deviceId: Long,
     onBackClick: () -> Unit,
 ) {
     val viewModel: DeviceMonitorViewModel = hiltViewModel()
 
-    val parsedDeviceId = remember(deviceId) { deviceId.toLongOrNull() }
+    val parsedDeviceId = remember(deviceId) { deviceId }
 
     LaunchedEffect(deviceId) {
         viewModel.setDeviceId(deviceId)
@@ -113,17 +112,11 @@ fun DeviceMonitorScreen(
                                 .height(260.dp),
                             contentAlignment = Alignment.Center
                         ) {
-						val id = parsedDeviceId
-						if (id == null) {
-							Text(text = "deviceId 无效: $deviceId", color = colors.onSurfaceVariant)
-						} else {
-							// DeviceView 在 composable 可见时自动轮询 screencap
-							DeviceView(
-                            screencapProvider = { _, _ -> viewModel.screencapPng(id) },
-								modifier = Modifier.fillMaxSize(),
-								refreshIntervalMs = 500L,
-							)
-						}
+						DeviceView(
+screencapProvider = { _, _ -> viewModel.screencapPng(parsedDeviceId) },
+                                modifier = Modifier.fillMaxSize(),
+                                refreshIntervalMs = 500L,
+                            )
                         }
                     }
                 }

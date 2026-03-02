@@ -1,11 +1,14 @@
 package com.scrctl.client.core.devicemanager
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import com.scrctl.client.BuildConfig
 import com.flyfishxu.kadb.Kadb
 import com.scrctl.client.core.database.dao.DeviceDao
 import com.scrctl.client.core.database.model.Device
-import com.scrctl.client.core.repository.DeviceRepository
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -17,6 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
 import java.io.File
 import java.util.Locale
 import kotlin.random.Random
@@ -25,8 +29,7 @@ private const val TAG = "DeviceManagerImpl"
 private const val AGENT_ASSET_NAME = "agent-server.jar"
 private const val AGENT_REMOTE_PATH = "/data/local/tmp/agent-server.jar"
 private const val AGENT_MAIN_CLASS = "com.scrctl.agent.Server"
-private const val AGENT_HEALTH_RETRY_COUNT = 20
-private const val AGENT_HEALTH_RETRY_DELAY_MS = 150L
+private const val AGENT_STARTUP_DELAY_MS = 200L
 
 
 enum class DeviceConnectionState {
@@ -36,19 +39,8 @@ enum class DeviceConnectionState {
     ERROR,
 }
 
-/**
- * 设备地址键，用于判断设备连接是否需要重建。
- */
 internal data class DeviceKey(val deviceAddr: String, val devicePort: Int)
 
-/**
- * 每个已连接设备持有的资源集合。
- *
- * - [kadb]         ADB 连接
- * - [forwarder]    设备上的 local abstract socket → 本机 abstract socket 转发器
- * - [agentClient]  与设备上 scrcpy-monitor 通信的 HTTP 客户端
- * - [serverJob]    scrcpy-server 进程 shell 的协程
- */
 internal data class DeviceConnection(
     val deviceId: Long,
     val key: DeviceKey? = null,
@@ -70,6 +62,63 @@ class DeviceManagerImpl(
     private val connectedByIdFlow = MutableStateFlow<Map<Long, Boolean>>(emptyMap())
     private val errorByIdFlow = MutableStateFlow<Map<Long, String>>(emptyMap())
     private val agentJarFile by lazy { extractAgentJarToCache() }
+    
+    private val connectivityManager = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+
+    init {
+        // 1. 订阅数据库设备流，自动发现新设备
+        scope.launch {
+            deviceDao.getAll().collectLatest { devices ->
+                devices.forEach { device ->
+                    val deviceId = device.id
+                    val existing = getConnection(deviceId)
+                    val newKey = DeviceKey(device.deviceAddr, device.devicePort)
+
+                    if (existing == null || 
+                        existing.state == DeviceConnectionState.ERROR || 
+                        existing.state == DeviceConnectionState.DISCONNECTED ||
+                        existing.key != newKey) {
+                        connect(deviceId)
+                    }
+                }
+            }
+        }
+
+        // 2. 监听网络变化实现自动重连
+        registerNetworkCallback()
+    }
+
+    private fun registerNetworkCallback() {
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+
+        connectivityManager.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                // 网络恢复时，尝试重连所有非正常连接的设备
+                scope.launch {
+                    val currentDevices = synchronized(connectionsLock) { connections.keys.toList() }
+                    currentDevices.forEach { deviceId ->
+                        val conn = getConnection(deviceId)
+                        if (conn?.state != DeviceConnectionState.CONNECTED) {
+                            connect(deviceId)
+                        }
+                    }
+                }
+            }
+
+            override fun onLost(network: Network) {
+                // 网络丢失时，立即更新所有连接状态为错误，刷新 UI
+                synchronized(connectionsLock) {
+                    connections.keys.forEach { deviceId ->
+                        markConnected(deviceId, false)
+                        markError(deviceId, "网络已断开")
+                        updateConnection(deviceId) { it.copy(state = DeviceConnectionState.ERROR) }
+                    }
+                }
+            }
+        })
+    }
 
     override fun observeErrorById(): StateFlow<Map<Long, String>> = errorByIdFlow.asStateFlow()
 
@@ -98,7 +147,6 @@ class DeviceManagerImpl(
         if (current?.kadb != null && current.state == DeviceConnectionState.CONNECTED) {
             return current.kadb
         }
-
         if (current?.state != DeviceConnectionState.CONNECTING) {
             connect(deviceId)
         }
@@ -110,68 +158,49 @@ class DeviceManagerImpl(
         if (current?.agentClient != null && current.state == DeviceConnectionState.CONNECTED) {
             return current.agentClient
         }
-
         if (current?.state != DeviceConnectionState.CONNECTING) {
             connect(deviceId)
         }
         return null
     }
 
-
-    private fun generateAgentId(): Int {
-        return Random.nextInt() and Int.MAX_VALUE
-    }
+    private fun generateAgentId(): Int = Random.nextInt() and Int.MAX_VALUE
 
     private suspend fun tryConnectDevice(device: Device) {
         val deviceId = device.id
         val key = DeviceKey(device.deviceAddr, device.devicePort)
         val existing = getConnection(deviceId)
 
-        if (existing != null && existing.state == DeviceConnectionState.CONNECTED && existing.key == key) {
-            return
-        }
+        if (existing != null && existing.state == DeviceConnectionState.CONNECTED && existing.key == key) return
+        if (existing != null && existing.state == DeviceConnectionState.CONNECTING && existing.key == key) return
 
         cleanupConnection(existing)
 
         putConnection(deviceId, DeviceConnection(
             deviceId = deviceId,
             key = key,
-            kadb = existing?.kadb,
-            forwarder = null,
-            agentClient = null,
-            serverJob = null,
             state = DeviceConnectionState.CONNECTING,
         ))
         markConnected(deviceId, false)
         markError(deviceId, null)
 
         try {
-            val kadb = existing?.kadb ?: Kadb.create(device.deviceAddr, device.devicePort)
+            val kadb = Kadb.create(device.deviceAddr, device.devicePort)
 
             kadb.shell("echo connected")
             pushAgent(kadb)
 
-            updateConnection(deviceId) { it.copy(kadb = kadb) }
             val agentId = generateAgentId()
             val remoteSocketName = buildRemoteSocketName(agentId)
             val serverJob = tryStartAgent(kadb, agentId)
+            
+            delay(AGENT_STARTUP_DELAY_MS)
 
             val localSocketName = "scrctl_agent_${agentId}"
             val forwarder = kadb.localAbstractForward(localSocketName, remoteSocketName)
             val agentClient = AgentClient(localSocketName)
 
-            updateConnection(deviceId) {
-                it.copy(
-                key = key,
-                kadb = kadb,
-                forwarder = forwarder,
-                agentClient = agentClient,
-                serverJob = serverJob,
-                state = DeviceConnectionState.CONNECTING,
-                )
-            }
-
-            if (!waitAgentHealthy(agentClient)) {
+            if (!agentClient.isHealthy()) {
                 throw IllegalStateException("Agent 健康检查失败")
             }
 
@@ -188,14 +217,10 @@ class DeviceManagerImpl(
             markConnected(deviceId, true)
             markError(deviceId, null)
         } catch (e: Throwable) {
+            // 这里捕获 Broken pipe, SocketException 等，防止崩溃并通知 UI
             cleanupConnection(getConnection(deviceId))
             updateConnection(deviceId) {
-                it.copy(
-                    forwarder = null,
-                    agentClient = null,
-                    serverJob = null,
-                    state = DeviceConnectionState.ERROR,
-                )
+                it.copy(state = DeviceConnectionState.ERROR)
             }
             markConnected(deviceId, false)
             markError(deviceId, e.message ?: e::class.java.simpleName)
@@ -218,38 +243,21 @@ class DeviceManagerImpl(
         }
     }
 
-    private suspend fun waitAgentHealthy(agentClient: AgentClient): Boolean {
-        repeat(AGENT_HEALTH_RETRY_COUNT) {
-            if (agentClient.isHealthy()) {
-                return true
-            }
-            delay(AGENT_HEALTH_RETRY_DELAY_MS)
-        }
-        return false
-    }
-
     private fun buildRemoteSocketName(agentId: Int): String {
         return "localabstract:agent_${String.format(Locale.US, "%08x", agentId)}"
     }
 
     private suspend fun connectInternal(deviceId: Long) {
-        val current = getConnection(deviceId)
-        if (current != null && current.state == DeviceConnectionState.CONNECTED) {
-            return
-        }
-
         val device = deviceDao.getById(deviceId) ?: run {
             markConnected(deviceId, false)
             markError(deviceId, "设备不存在")
             return
         }
-
         tryConnectDevice(device)
     }
 
     private fun pushAgent(kadb: Kadb) {
-        val localFile = agentJarFile
-        kadb.push(localFile, AGENT_REMOTE_PATH)
+        kadb.push(agentJarFile, AGENT_REMOTE_PATH)
     }
 
     private fun extractAgentJarToCache(): File {
@@ -263,46 +271,32 @@ class DeviceManagerImpl(
     }
 
     private fun markConnected(deviceId: Long, connected: Boolean) {
-        val snapshot = connectedByIdFlow.value
-        if (snapshot[deviceId] == connected) {
-            return
-        }
-        connectedByIdFlow.value = snapshot + (deviceId to connected)
+        connectedByIdFlow.value = connectedByIdFlow.value + (deviceId to connected)
     }
 
     private fun markError(deviceId: Long, message: String?) {
         val snapshot = errorByIdFlow.value
         if (message.isNullOrBlank()) {
-            if (!snapshot.containsKey(deviceId)) {
-                return
-            }
             errorByIdFlow.value = snapshot - deviceId
-            return
+        } else {
+            errorByIdFlow.value = snapshot + (deviceId to message)
         }
-        if (snapshot[deviceId] == message) {
-            return
-        }
-        errorByIdFlow.value = snapshot + (deviceId to message)
     }
 
     private fun cleanupConnection(connection: DeviceConnection?) {
         if (connection == null) return
-
         connection.serverJob?.cancel()
         runCatching { connection.agentClient?.close() }
         runCatching { connection.forwarder?.close() }
+        runCatching { connection.kadb?.close() }
     }
 
     private fun getConnection(deviceId: Long): DeviceConnection? {
-        return synchronized(connectionsLock) {
-            connections[deviceId]
-        }
+        return synchronized(connectionsLock) { connections[deviceId] }
     }
 
     private fun putConnection(deviceId: Long, connection: DeviceConnection) {
-        synchronized(connectionsLock) {
-            connections[deviceId] = connection
-        }
+        synchronized(connectionsLock) { connections[deviceId] = connection }
     }
 
     private fun updateConnection(deviceId: Long, transform: (DeviceConnection) -> DeviceConnection) {
@@ -311,5 +305,4 @@ class DeviceManagerImpl(
             connections[deviceId] = transform(current)
         }
     }
-
 }

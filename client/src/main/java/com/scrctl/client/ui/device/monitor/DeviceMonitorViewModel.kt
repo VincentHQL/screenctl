@@ -66,10 +66,8 @@ class DeviceMonitorViewModel @Inject constructor(
 	private var lastCpu: CpuSample? = null
 	private var lastNet: NetSample? = null
 
-	fun setDeviceId(deviceId: String) {
-		val parsed = deviceId.toLongOrNull() ?: return
-		if (this.deviceId == parsed) return
-		this.deviceId = parsed
+	fun setDeviceId(deviceId: Long) {
+		this.deviceId = deviceId
 		savedStateHandle["deviceId"] = deviceId
 		stopPolling()
 		uiState = UiState.Loading

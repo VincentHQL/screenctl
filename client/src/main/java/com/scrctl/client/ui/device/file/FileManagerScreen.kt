@@ -67,7 +67,7 @@ import androidx.compose.ui.unit.sp
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FileManagerScreen(
-    deviceId: String,
+    deviceId: Long,
     onBackClick: () -> Unit,
 ) {
     val primary = MaterialTheme.colorScheme.primary

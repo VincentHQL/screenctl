@@ -58,10 +58,8 @@ class AppManagerViewModel @Inject constructor(
 
 	private var deviceId: Long? = savedStateHandle.get<String>("deviceId")?.toLongOrNull()
 
-	fun setDeviceId(deviceId: String) {
-		val parsed = deviceId.toLongOrNull() ?: return
-		if (this.deviceId == parsed) return
-		this.deviceId = parsed
+	fun setDeviceId(deviceId: Long) {
+		this.deviceId = deviceId
 		savedStateHandle["deviceId"] = deviceId
 		uiState = UiState.Loading
 		detailsByPackage = emptyMap()

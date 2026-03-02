@@ -2,29 +2,28 @@ package com.scrctl.client.core.devicemanager
 
 import android.net.LocalSocket
 import android.net.LocalSocketAddress
+import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.logging.HttpLoggingInterceptor
 import org.json.JSONObject
 import java.io.Closeable
+import java.io.IOException
 import java.net.InetAddress
 import java.net.Socket
+import java.net.SocketAddress
 import java.util.concurrent.TimeUnit
 import javax.net.SocketFactory
 
 class AgentClient(
-    socketName: String,
+    private val socketName: String,
 ) : Closeable {
 
     private class LocalSocketFactory(private val socketName: String) : SocketFactory() {
-
         override fun createSocket(): Socket {
-            val ls = LocalSocket()
-            ls.connect(LocalSocketAddress(socketName, LocalSocketAddress.Namespace.ABSTRACT))
-            return ls.fileDescriptor.let { fd ->
-                // 将 LocalSocket 的 FileDescriptor 包装为标准 Socket
-                // 以便 OkHttp 使用
-                LocalSocketWrapper(ls)
-            }
+            return LocalSocketWrapper(LocalSocket(), socketName)
         }
 
         override fun createSocket(host: String?, port: Int): Socket = createSocket()
@@ -33,21 +32,59 @@ class AgentClient(
         override fun createSocket(host: InetAddress?, port: Int, localAddress: InetAddress?, localPort: Int): Socket = createSocket()
     }
 
-    /**
-     * 将 [LocalSocket] 包装为 [Socket]，使 OkHttp 能够使用其流。
-     */
-    private class LocalSocketWrapper(private val localSocket: LocalSocket) : Socket() {
+    private class LocalSocketWrapper(
+        private val localSocket: LocalSocket,
+        private val socketName: String
+    ) : Socket() {
+        private var _isClosed = false
+        private var _pendingSoTimeout = 0
+        
+        override fun connect(endpoint: SocketAddress?, timeout: Int) {
+            localSocket.connect(LocalSocketAddress(socketName, LocalSocketAddress.Namespace.ABSTRACT))
+            if (_pendingSoTimeout != 0) {
+                try {
+                    localSocket.soTimeout = _pendingSoTimeout
+                } catch (_: IOException) {}
+            }
+        }
+
         override fun getInputStream() = localSocket.inputStream
         override fun getOutputStream() = localSocket.outputStream
-        override fun close() = localSocket.close()
-        override fun isClosed() = !localSocket.isConnected
+        
+        override fun close() {
+            _isClosed = true
+            localSocket.close()
+        }
+        
         override fun isConnected() = localSocket.isConnected
+        override fun isClosed() = _isClosed
+
+        override fun setSoTimeout(timeout: Int) {
+            _pendingSoTimeout = timeout
+            try {
+                localSocket.soTimeout = timeout
+            } catch (_: IOException) {}
+        }
+
+        override fun getSoTimeout(): Int {
+            return if (localSocket.isConnected) localSocket.soTimeout else _pendingSoTimeout
+        }
+
+        override fun setTcpNoDelay(on: Boolean) {}
+        override fun getTcpNoDelay() = false
+        override fun setKeepAlive(on: Boolean) {}
     }
 
-    // URL 中的 host:port 不实际使用，只是满足 HTTP 协议格式要求
     private val baseUrl = "http://localhost"
 
+    private val loggingInterceptor = HttpLoggingInterceptor { message ->
+        Log.d("AgentClient_Http", message)
+    }.apply {
+        level = HttpLoggingInterceptor.Level.HEADERS
+    }
+
     private val httpClient = OkHttpClient.Builder()
+        .addInterceptor(loggingInterceptor)
         .socketFactory(LocalSocketFactory(socketName))
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
@@ -56,20 +93,21 @@ class AgentClient(
 
     // ── health ──────────────────────────────────────────────────────────────
 
-    fun isHealthy(): Boolean {
-        return try {
+    suspend fun isHealthy(): Boolean = withContext(Dispatchers.IO) {
+        try {
             val request = Request.Builder().url("$baseUrl/health").get().build()
             httpClient.newCall(request).execute().use { resp ->
                 resp.isSuccessful
             }
-        } catch (_: Throwable) {
+        } catch (e: Throwable) {
+            Log.e("AgentClient", "isHealthy failed", e)
             false
         }
     }
 
     // ── screenshot ──────────────────────────────────────────────────────────
 
-    fun screenshot(width: Int? = null, height: Int? = null): ByteArray {
+    suspend fun screenshot(width: Int? = null, height: Int? = null): ByteArray = withContext(Dispatchers.IO) {
         val url = buildString {
             append("$baseUrl/screenshot")
             val params = mutableListOf<String>()
@@ -85,32 +123,32 @@ class AgentClient(
             if (!resp.isSuccessful) {
                 throw IllegalStateException("screenshot failed: ${resp.code}")
             }
-            return resp.body?.bytes() ?: throw IllegalStateException("screenshot body 为空")
+            resp.body?.bytes() ?: throw IllegalStateException("screenshot body 为空")
         }
     }
 
     // ── device-info ─────────────────────────────────────────────────────────
 
-    fun deviceInfo(): MonitorDeviceInfo {
+    suspend fun deviceInfo(): MonitorDeviceInfo = withContext(Dispatchers.IO) {
         val request = Request.Builder().url("$baseUrl/device-info").get().build()
         httpClient.newCall(request).execute().use { resp ->
             if (!resp.isSuccessful) {
                 throw IllegalStateException("device-info failed: ${resp.code}")
             }
             val body = resp.body?.string() ?: throw IllegalStateException("device-info body 为空")
-            return parseDeviceInfo(JSONObject(body))
+            parseDeviceInfo(JSONObject(body))
         }
     }
 
     // ── packages ────────────────────────────────────────────────────────────
 
-    fun packages(
+    suspend fun packages(
         page: Int = 0,
         pageSize: Int = 200,
         system: Boolean = true,
         user: Boolean = true,
         name: String? = null,
-    ): PackageListResult {
+    ): PackageListResult = withContext(Dispatchers.IO) {
         val url = buildString {
             append("$baseUrl/packages?page=$page&pageSize=$pageSize")
             append("&system=$system&user=$user")
@@ -122,17 +160,17 @@ class AgentClient(
                 throw IllegalStateException("packages failed: ${resp.code}")
             }
             val body = resp.body?.string() ?: throw IllegalStateException("packages body 为空")
-            return parsePackageList(JSONObject(body))
+            parsePackageList(JSONObject(body))
         }
     }
 
     // ── app icon ────────────────────────────────────────────────────────────
 
-    fun appIcon(packageName: String): ByteArray? {
+    suspend fun appIcon(packageName: String): ByteArray? = withContext(Dispatchers.IO) {
         val request = Request.Builder().url("$baseUrl/$packageName/icon").get().build()
-        return try {
+        try {
             httpClient.newCall(request).execute().use { resp ->
-                if (!resp.isSuccessful) return null
+                if (!resp.isSuccessful) return@withContext null
                 resp.body?.bytes()
             }
         } catch (_: Throwable) {
@@ -205,8 +243,6 @@ class AgentClient(
         )
     }
 }
-
-// ── Data models ─────────────────────────────────────────────────────────────────
 
 data class MonitorDeviceInfo(
     val manufacturer: String,

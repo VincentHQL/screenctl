@@ -6,6 +6,10 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
+kotlin {
+    jvmToolchain(Configurations.jdkVersion)
+}
+
 dependencies {
     implementation(compose.desktop.currentOs)
     implementation(compose.runtime)
@@ -13,7 +17,6 @@ dependencies {
     implementation(compose.material3)
     implementation(compose.materialIconsExtended)
     implementation(compose.ui)
-    // implementation(libs.kadb)
     implementation(libs.kotlinx.coroutines.swing)
     implementation(libs.oshi.core)
     implementation(project(":kadb"))

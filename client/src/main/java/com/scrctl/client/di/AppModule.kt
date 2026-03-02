@@ -47,7 +47,7 @@ object AppModule {
         @ApplicationContext ctx: Context,
         deviceDao: DeviceDao,
         @Dispatcher(ScrctlDispatchers.IO) io: CoroutineDispatcher
-    ): DeviceManagerImpl {
+    ): DeviceManager {
         return DeviceManagerImpl(ctx, deviceDao, io)
     }
 }
