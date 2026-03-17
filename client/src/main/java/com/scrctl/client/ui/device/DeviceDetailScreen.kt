@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.SystemUpdateAlt
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -75,6 +76,7 @@ fun DeviceDetailScreen(
 	onFileManager: () -> Unit,
 	onAppManager: () -> Unit,
 	onDeviceMonitor: () -> Unit,
+	onTerminal: () -> Unit,
 	viewModel: DeviceDetailViewModel = hiltViewModel(),
 ) {
 	LaunchedEffect(deviceId) {
@@ -252,6 +254,7 @@ fun DeviceDetailScreen(
 				onFileManager = onFileManager,
 				onAppManager = onAppManager,
 				onDeviceMonitor = onDeviceMonitor,
+				onTerminal = onTerminal,
 			)
 
 			SectionHeader(text = "设备信息")
@@ -294,6 +297,7 @@ private fun QuickActionsGrid(
 	onFileManager: () -> Unit,
 	onAppManager: () -> Unit,
 	onDeviceMonitor: () -> Unit,
+	onTerminal: () -> Unit,
 ) {
 	val primary = MaterialTheme.colorScheme.primary
 	val outline = MaterialTheme.colorScheme.outlineVariant
@@ -324,13 +328,19 @@ private fun QuickActionsGrid(
 			icon = Icons.Filled.MonitorHeart,
 			onClick = onDeviceMonitor,
 		),
+		QuickAction(
+			title = "终端",
+			subtitle = "ADB Shell 终端",
+			icon = Icons.Filled.Terminal,
+			onClick = onTerminal,
+		),
 	)
 
 	LazyVerticalGrid(
 		columns = GridCells.Fixed(2),
 		modifier = Modifier
 			.fillMaxWidth()
-			.height(228.dp)
+			.height(344.dp)
 			.padding(horizontal = 16.dp),
 		horizontalArrangement = Arrangement.spacedBy(12.dp),
 		verticalArrangement = Arrangement.spacedBy(12.dp),
