@@ -203,19 +203,50 @@ fun TerminalScreen(
 
                         if (uiState.isExecuting) {
                             item {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                ) {
-                                    CircularProgressIndicator(
-                                        strokeWidth = 2.dp,
-                                        modifier = Modifier.height(18.dp),
-                                    )
-                                    Text(
-                                        text = "命令执行中...",
-                                        color = systemTint,
-                                        fontFamily = FontFamily.Monospace,
-                                    )
+                                val streaming = uiState.streamingText
+                                if (streaming != null) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        SelectionContainer {
+                                            Text(
+                                                text = streaming,
+                                                color = colors.onSurface,
+                                                fontFamily = FontFamily.Monospace,
+                                                lineHeight = 20.sp,
+                                            )
+                                        }
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        ) {
+                                            CircularProgressIndicator(
+                                                strokeWidth = 2.dp,
+                                                modifier = Modifier
+                                                    .height(14.dp)
+                                                    .width(14.dp),
+                                            )
+                                            Text(
+                                                text = "输出中...",
+                                                color = systemTint,
+                                                fontFamily = FontFamily.Monospace,
+                                                style = MaterialTheme.typography.bodySmall,
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    ) {
+                                        CircularProgressIndicator(
+                                            strokeWidth = 2.dp,
+                                            modifier = Modifier.height(18.dp),
+                                        )
+                                        Text(
+                                            text = "命令执行中...",
+                                            color = systemTint,
+                                            fontFamily = FontFamily.Monospace,
+                                        )
+                                    }
                                 }
                             }
                         }

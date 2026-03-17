@@ -2,6 +2,7 @@ package com.scrctl.client.ui.terminal
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.flyfishxu.kadb.shell.AdbShellPacket
 import com.scrctl.client.core.Dispatcher
 import com.scrctl.client.core.ScrctlDispatchers
 import com.scrctl.client.core.devicemanager.DeviceManager
@@ -94,6 +95,7 @@ class TerminalViewModel @Inject constructor(
 			state.copy(
 				entries = buildBannerEntries(deviceId),
 				lastError = null,
+				streamingText = null,
 			)
 		}
 	}
@@ -144,27 +146,60 @@ class TerminalViewModel @Inject constructor(
 			state.copy(
 				isExecuting = true,
 				lastError = null,
+				streamingText = null,
 			)
 		}
 		rememberCommand(command)
 
 		viewModelScope.launch {
-			val result = withContext(ioDispatcher) {
+			val error = withContext(ioDispatcher) {
 				runCatching {
 					val adbClient = deviceManager.getAdbClient(deviceId)
 						?: throw IllegalStateException("设备未连接")
-					adbClient.shell(command).allOutput
-				}
+
+					adbClient.openShell(command).use { shell ->
+						val stdoutBuffer = StringBuilder()
+						val stderrBuffer = StringBuilder()
+						var hasAnyOutput = false
+
+						while (true) {
+							when (val packet = shell.read()) {
+								is AdbShellPacket.StdOut -> {
+									stdoutBuffer.append(packet.payload.decodeToString())
+									hasAnyOutput = true
+									val preview = buildStreamingPreview(stdoutBuffer, stderrBuffer)
+									_uiState.update { s -> s.copy(streamingText = preview) }
+								}
+
+								is AdbShellPacket.StdError -> {
+									stderrBuffer.append(packet.payload.decodeToString())
+									hasAnyOutput = true
+									val preview = buildStreamingPreview(stdoutBuffer, stderrBuffer)
+									_uiState.update { s -> s.copy(streamingText = preview) }
+								}
+
+								is AdbShellPacket.Exit -> {
+									val stdoutFinal = stdoutBuffer.toString().trimEnd()
+									val stderrFinal = stderrBuffer.toString().trimEnd()
+									if (stdoutFinal.isNotBlank()) {
+										appendEntry(TerminalLineKind.Output, stdoutFinal)
+									}
+									if (stderrFinal.isNotBlank()) {
+										appendEntry(TerminalLineKind.Error, stderrFinal)
+									}
+									if (!hasAnyOutput) {
+										appendEntry(TerminalLineKind.Output, "命令执行完成，无输出。")
+									}
+									break
+								}
+							}
+						}
+					}
+				}.exceptionOrNull()
 			}
 
-			result.onSuccess { output ->
-				val normalized = output.trimEnd()
-				appendEntry(
-					kind = TerminalLineKind.Output,
-					text = normalized.ifBlank { "命令执行完成，无输出。" },
-				)
-			}.onFailure { throwable ->
-				val message = throwable.message?.ifBlank { null } ?: "命令执行失败"
+			if (error != null) {
+				val message = error.message?.ifBlank { null } ?: "命令执行失败"
 				_uiState.update { state ->
 					state.copy(lastError = message)
 				}
@@ -175,7 +210,7 @@ class TerminalViewModel @Inject constructor(
 			}
 
 			_uiState.update { state ->
-				state.copy(isExecuting = false)
+				state.copy(isExecuting = false, streamingText = null)
 			}
 		}
 	}
@@ -191,6 +226,16 @@ class TerminalViewModel @Inject constructor(
 					.forEach(::add)
 			}
 			state.copy(recentCommands = recent)
+		}
+	}
+
+	private fun buildStreamingPreview(stdout: StringBuilder, stderr: StringBuilder): String {
+		val combined = stdout.toString() + stderr.toString()
+		val trimmed = combined.trimEnd()
+		return if (trimmed.length > MAX_STREAMING_PREVIEW_LENGTH) {
+			trimmed.takeLast(MAX_STREAMING_PREVIEW_LENGTH)
+		} else {
+			trimmed
 		}
 	}
 
@@ -225,6 +270,7 @@ class TerminalViewModel @Inject constructor(
 
 	companion object {
 		private const val MAX_ENTRIES = 200
+		private const val MAX_STREAMING_PREVIEW_LENGTH = 8000
 
 		private val DEFAULT_COMMANDS = listOf(
 			"getprop ro.product.model",
@@ -253,6 +299,7 @@ data class TerminalUiState(
 	val recentCommands: List<String> = emptyList(),
 	val suggestedCommands: List<String> = emptyList(),
 	val lastError: String? = null,
+	val streamingText: String? = null,
 )
 
 data class TerminalLine(
