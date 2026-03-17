@@ -62,6 +62,7 @@ public class NewDisplayCapture extends SurfaceCapture {
     private Size videoSize;
     private Size displaySize; // the logical size of the display (including rotation)
     private Size physicalSize; // the physical size of the display (without rotation)
+    private int displayRotation;
 
     private int dpi;
 
@@ -103,7 +104,6 @@ public class NewDisplayCapture extends SurfaceCapture {
 
     @Override
     public void prepare() {
-        int displayRotation;
         if (virtualDisplay == null) {
             if (!newDisplay.hasExplicitSize()) {
                 displaySize = mainDisplaySize;
@@ -224,6 +224,7 @@ public class NewDisplayCapture extends SurfaceCapture {
         if (vdListener != null) {
             PositionMapper positionMapper = PositionMapper.create(videoSize, eventTransform, displaySize);
             vdListener.onNewVirtualDisplay(virtualDisplay.getDisplay().getDisplayId(), positionMapper);
+            vdListener.onDisplayRotationChanged(displayRotation);
         }
     }
 

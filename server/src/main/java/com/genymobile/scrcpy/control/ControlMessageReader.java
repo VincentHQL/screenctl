@@ -31,6 +31,8 @@ public class ControlMessageReader {
                 return parseInjectText();
             case ControlMessage.TYPE_INJECT_TOUCH_EVENT:
                 return parseInjectTouchEvent();
+            case ControlMessage.TYPE_INJECT_MULTI_TOUCH_EVENT:
+                return parseInjectMultiTouchEvent();
             case ControlMessage.TYPE_INJECT_SCROLL_EVENT:
                 return parseInjectScrollEvent();
             case ControlMessage.TYPE_BACK_OR_SCREEN_ON:
@@ -41,6 +43,10 @@ public class ControlMessageReader {
                 return parseSetClipboard();
             case ControlMessage.TYPE_SET_DISPLAY_POWER:
                 return parseSetDisplayPower();
+            case ControlMessage.TYPE_SET_VIDEO_ENABLED:
+                return parseSetVideoEnabled();
+            case ControlMessage.TYPE_SET_AUDIO_ENABLED:
+                return parseSetAudioEnabled();
             case ControlMessage.TYPE_EXPAND_NOTIFICATION_PANEL:
             case ControlMessage.TYPE_EXPAND_SETTINGS_PANEL:
             case ControlMessage.TYPE_COLLAPSE_PANELS:
@@ -110,6 +116,34 @@ public class ControlMessageReader {
         return ControlMessage.createInjectTouchEvent(action, pointerId, position, pressure, actionButton, buttons);
     }
 
+    private ControlMessage parseInjectMultiTouchEvent() throws IOException {
+        int action = dis.readUnsignedByte();
+        int actionIndex = dis.readUnsignedByte();
+        int pointerCount = dis.readUnsignedByte();
+        if (pointerCount <= 0 || pointerCount > PointersState.MAX_POINTERS) {
+            throw new ControlProtocolException("Invalid touch pointer count: " + pointerCount);
+        }
+        int screenWidth = dis.readUnsignedShort();
+        int screenHeight = dis.readUnsignedShort();
+        int actionButton = dis.readInt();
+        int buttons = dis.readInt();
+        if (actionIndex >= pointerCount) {
+            throw new ControlProtocolException("Invalid touch actionIndex: " + actionIndex + ", pointerCount=" + pointerCount);
+        }
+
+        ControlMessage.TouchPointer[] touchPointers = new ControlMessage.TouchPointer[pointerCount];
+        for (int i = 0; i < pointerCount; ++i) {
+            long pointerId = dis.readLong();
+            int x = dis.readInt();
+            int y = dis.readInt();
+            float pressure = Binary.u16FixedPointToFloat(dis.readShort());
+            Position position = new Position(x, y, screenWidth, screenHeight);
+            touchPointers[i] = new ControlMessage.TouchPointer(pointerId, position, pressure);
+        }
+
+        return ControlMessage.createInjectMultiTouchEvent(action, actionIndex, touchPointers, actionButton, buttons);
+    }
+
     private ControlMessage parseInjectScrollEvent() throws IOException {
         Position position = parsePosition();
         // Binary.i16FixedPointToFloat() decodes values assuming the full range is [-1, 1], but the actual range is [-16, 16].
@@ -139,6 +173,16 @@ public class ControlMessageReader {
     private ControlMessage parseSetDisplayPower() throws IOException {
         boolean on = dis.readBoolean();
         return ControlMessage.createSetDisplayPower(on);
+    }
+
+    private ControlMessage parseSetVideoEnabled() throws IOException {
+        boolean enabled = dis.readBoolean();
+        return ControlMessage.createSetVideoEnabled(enabled);
+    }
+
+    private ControlMessage parseSetAudioEnabled() throws IOException {
+        boolean enabled = dis.readBoolean();
+        return ControlMessage.createSetAudioEnabled(enabled);
     }
 
     private ControlMessage parseUhidCreate() throws IOException {

@@ -4,14 +4,14 @@ plugins {
 
 android {
     namespace = "com.genymobile.scrcpy"
-    compileSdk = 35
+    compileSdk = Configurations.compileSdk
 
     defaultConfig {
         applicationId = "com.genymobile.scrcpy"
-        minSdk = 21
-        targetSdk = 35
-        versionCode = 30303
-        versionName = "3.3.3"
+        minSdk = Configurations.minSdk
+        targetSdk = Configurations.targetSdk
+        versionCode = Configurations.versionCode
+        versionName = Configurations.versionName
     }
 
     buildTypes {
@@ -24,8 +24,8 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.toVersion(Configurations.jdkVersion)
+        targetCompatibility = JavaVersion.toVersion(Configurations.jdkVersion)
     }
     buildFeatures {
         buildConfig = true

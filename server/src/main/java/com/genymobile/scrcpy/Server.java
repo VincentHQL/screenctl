@@ -14,11 +14,10 @@ import com.genymobile.scrcpy.device.DesktopConnection;
 import com.genymobile.scrcpy.device.Device;
 import com.genymobile.scrcpy.device.NewDisplay;
 import com.genymobile.scrcpy.device.Streamer;
-import com.genymobile.scrcpy.agent.AgentServer;
-import com.genymobile.scrcpy.agent.RouterSetup;
 import com.genymobile.scrcpy.opengl.OpenGLRunner;
 import com.genymobile.scrcpy.util.Ln;
 import com.genymobile.scrcpy.util.LogUtils;
+import com.genymobile.scrcpy.util.ScreenCap;
 import com.genymobile.scrcpy.video.CameraCapture;
 import com.genymobile.scrcpy.video.NewDisplayCapture;
 import com.genymobile.scrcpy.video.ScreenCapture;
@@ -97,7 +96,6 @@ public final class Server {
         boolean control = options.getControl();
         boolean video = options.getVideo();
         boolean audio = options.getAudio();
-        boolean agent = options.getAgent();
         boolean sendDummyByte = options.getSendDummyByte();
 
         Workarounds.apply();
@@ -128,6 +126,11 @@ public final class Server {
                     audioCapture = new AudioPlaybackCapture(options.getAudioDup());
                 }
 
+                if (options.getLazyAudio()) {
+                    audioCapture.setEnabled(false);
+                    Ln.i("Audio capture is lazy-started and will wait for TYPE_SET_AUDIO_ENABLED");
+                }
+
                 Streamer audioStreamer = new Streamer(connection.getAudioFd(), audioCodec, options.getSendCodecMeta(), options.getSendFrameMeta());
                 AsyncProcessor audioRecorder;
                 if (audioCodec == AudioCodec.RAW) {
@@ -136,6 +139,11 @@ public final class Server {
                     audioRecorder = new AudioEncoder(audioCapture, audioStreamer, options);
                 }
                 asyncProcessors.add(audioRecorder);
+
+                if (controller != null) {
+                    controller.setAudioCapture(audioCapture);
+                }
+
             }
 
             if (video) {
@@ -153,18 +161,18 @@ public final class Server {
                 } else {
                     surfaceCapture = new CameraCapture(options);
                 }
+
+                if (options.getLazyVideo()) {
+                    surfaceCapture.setEnabled(false);
+                    Ln.i("Video capture is lazy-started and will wait for TYPE_SET_VIDEO_ENABLED");
+                }
+
                 SurfaceEncoder surfaceEncoder = new SurfaceEncoder(surfaceCapture, videoStreamer, options);
                 asyncProcessors.add(surfaceEncoder);
 
                 if (controller != null) {
                     controller.setSurfaceCapture(surfaceCapture);
                 }
-            }
-
-            if (agent) {
-                AgentServer agentServer = new AgentServer(scid);
-                RouterSetup.setupRoutes(agentServer.getRouter(), FakeContext.get());
-                asyncProcessors.add(agentServer);
             }
 
             Completion completion = new Completion(asyncProcessors.size());
@@ -234,18 +242,25 @@ public final class Server {
     }
 
     private static void internalMain(String... args) throws Exception {
+        Thread.UncaughtExceptionHandler defaultHandler = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
             Ln.e("Exception on thread " + t, e);
+            if (defaultHandler != null) {
+                defaultHandler.uncaughtException(t, e);
+            }
         });
 
         prepareMainLooper();
 
         Options options = Options.parse(args);
-
         Ln.disableSystemStreams();
         Ln.initLogLevel(options.getLogLevel());
 
-        Ln.i("Device: [" + Build.MANUFACTURER + "] " + Build.BRAND + " " + Build.MODEL + " (Android " + Build.VERSION.RELEASE + ")");
+        if (options.getScreenCap()) {
+            Workarounds.apply();
+            ScreenCap.takeScreenshot(options.getDisplayId(), options.getScreenCapSize());
+            return;
+        }
 
         if (options.getList()) {
             if (options.getCleanup()) {
@@ -271,6 +286,8 @@ public final class Server {
             // Just print the requested data, do not mirror
             return;
         }
+
+        Ln.i("Device: [" + Build.MANUFACTURER + "] " + Build.BRAND + " " + Build.MODEL + " (Android " + Build.VERSION.RELEASE + ")");
 
         try {
             scrcpy(options);

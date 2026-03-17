@@ -74,6 +74,18 @@ public class SurfaceEncoder implements AsyncProcessor {
             boolean headerWritten = false;
 
             do {
+                try {
+                    while (!stopped.get() && !capture.isEnabled()) {
+                        capture.waitUntilEnabled();
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+                if (stopped.get()) {
+                    break;
+                }
+
                 reset.consumeReset(); // If a capture reset was requested, it is implicitly fulfilled
                 capture.prepare();
                 Size size = capture.getSize();
@@ -313,6 +325,7 @@ public class SurfaceEncoder implements AsyncProcessor {
     public void stop() {
         if (thread != null) {
             stopped.set(true);
+            thread.interrupt();
             reset.reset();
         }
     }

@@ -4,13 +4,11 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountTree
 import androidx.compose.material.icons.filled.AddCircleOutline
 import androidx.compose.material.icons.filled.Devices
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -96,14 +94,6 @@ internal fun GroupDrawerContent(
                     },
                 )
             }
-
-            // Footer
-            DrawerFooter(
-                outlineVariant = outlineVariant,
-                surfaceVariant = surfaceVariant,
-                onSurface = onSurface,
-                onSurfaceVariant = onSurfaceVariant,
-            )
         }
     }
 }
@@ -192,52 +182,6 @@ private fun CreateGroupSection(
             shape = RoundedCornerShape(12.dp),
         ) {
             Text("确认")
-        }
-    }
-}
-
-@Composable
-private fun DrawerFooter(
-    outlineVariant: Color,
-    surfaceVariant: Color,
-    onSurface: Color,
-    onSurfaceVariant: Color,
-) {
-    HorizontalDivider(
-        modifier = Modifier.padding(vertical = 16.dp),
-        color = outlineVariant.copy(alpha = 0.5f),
-    )
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(32.dp)
-                .clip(CircleShape)
-                .background(surfaceVariant),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Person,
-                contentDescription = null,
-                tint = onSurfaceVariant.copy(alpha = 0.8f),
-                modifier = Modifier.size(14.dp),
-            )
-        }
-        Column {
-            Text(
-                text = "管理员账号",
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                color = onSurface.copy(alpha = 0.65f),
-            )
-            Text(
-                text = "ID: 9527-AD",
-                fontSize = 8.sp,
-                color = onSurfaceVariant.copy(alpha = 0.65f),
-            )
         }
     }
 }

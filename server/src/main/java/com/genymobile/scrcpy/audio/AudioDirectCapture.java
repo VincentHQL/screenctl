@@ -16,6 +16,7 @@ import android.os.Build;
 import android.os.SystemClock;
 
 import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class AudioDirectCapture implements AudioCapture {
 
@@ -26,6 +27,8 @@ public class AudioDirectCapture implements AudioCapture {
     private static final int ENCODING = AudioConfig.ENCODING;
 
     private final int audioSource;
+    private final AtomicBoolean enabled = new AtomicBoolean(true);
+    private final Object enabledStateChanged = new Object();
 
     private AudioRecord recorder;
     private AudioRecordReader reader;
@@ -131,6 +134,32 @@ public class AudioDirectCapture implements AudioCapture {
         if (recorder != null) {
             // Will call .stop() if necessary, without throwing an IllegalStateException
             recorder.release();
+            recorder = null;
+            reader = null;
+        }
+    }
+
+    @Override
+    public void setEnabled(boolean enabled) {
+        boolean changed = this.enabled.getAndSet(enabled) != enabled;
+        if (changed) {
+            synchronized (enabledStateChanged) {
+                enabledStateChanged.notifyAll();
+            }
+        }
+    }
+
+    @Override
+    public boolean isEnabled() {
+        return enabled.get();
+    }
+
+    @Override
+    public void waitUntilEnabled() throws InterruptedException {
+        synchronized (enabledStateChanged) {
+            while (!enabled.get()) {
+                enabledStateChanged.wait();
+            }
         }
     }
 

@@ -16,10 +16,13 @@ import android.os.Build;
 
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class AudioPlaybackCapture implements AudioCapture {
 
     private final boolean keepPlayingOnDevice;
+    private final AtomicBoolean enabled = new AtomicBoolean(true);
+    private final Object enabledStateChanged = new Object();
 
     private AudioRecord recorder;
     private AudioRecordReader reader;
@@ -127,6 +130,32 @@ public final class AudioPlaybackCapture implements AudioCapture {
         if (recorder != null) {
             // Will call .stop() if necessary, without throwing an IllegalStateException
             recorder.release();
+            recorder = null;
+            reader = null;
+        }
+    }
+
+    @Override
+    public void setEnabled(boolean enabled) {
+        boolean changed = this.enabled.getAndSet(enabled) != enabled;
+        if (changed) {
+            synchronized (enabledStateChanged) {
+                enabledStateChanged.notifyAll();
+            }
+        }
+    }
+
+    @Override
+    public boolean isEnabled() {
+        return enabled.get();
+    }
+
+    @Override
+    public void waitUntilEnabled() throws InterruptedException {
+        synchronized (enabledStateChanged) {
+            while (!enabled.get()) {
+                enabledStateChanged.wait();
+            }
         }
     }
 

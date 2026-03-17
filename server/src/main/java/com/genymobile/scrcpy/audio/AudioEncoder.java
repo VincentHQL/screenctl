@@ -25,6 +25,7 @@ import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class AudioEncoder implements AsyncProcessor {
 
@@ -70,6 +71,7 @@ public final class AudioEncoder implements AsyncProcessor {
     private Thread outputThread;
 
     private boolean ended;
+    private final AtomicBoolean stopped = new AtomicBoolean();
 
     public AudioEncoder(AudioCapture capture, Streamer streamer, Options options) {
         this.capture = capture;
@@ -115,8 +117,6 @@ public final class AudioEncoder implements AsyncProcessor {
     }
 
     private void outputThread(MediaCodec mediaCodec) throws IOException, InterruptedException {
-        streamer.writeAudioHeader();
-
         while (!Thread.currentThread().isInterrupted()) {
             OutputTask task = outputTasks.take();
             ByteBuffer buffer = mediaCodec.getOutputBuffer(task.index);
@@ -175,7 +175,9 @@ public final class AudioEncoder implements AsyncProcessor {
     @Override
     public void stop() {
         if (thread != null) {
-            // Just wake up the blocking wait from the thread, so that it properly releases all its resources and terminates
+            stopped.set(true);
+            thread.interrupt();
+            capture.stop();
             end();
         }
     }
@@ -189,33 +191,40 @@ public final class AudioEncoder implements AsyncProcessor {
 
     private synchronized void end() {
         ended = true;
-        notify();
+        notifyAll();
     }
 
-    private synchronized void waitEnded() {
-        try {
-            while (!ended) {
-                wait();
-            }
-        } catch (InterruptedException e) {
-            // ignore
+    private synchronized void resetEnded() {
+        ended = false;
+    }
+
+    private synchronized void waitEnded() throws InterruptedException {
+        while (!ended) {
+            wait();
         }
+    }
+
+    private void waitUntilCaptureEnabled() throws InterruptedException {
+        while (!stopped.get() && !capture.isEnabled()) {
+            capture.waitUntilEnabled();
+        }
+    }
+
+    private boolean isClosedByControl() {
+        return stopped.get() || !capture.isEnabled();
     }
 
     @TargetApi(AndroidVersions.API_23_ANDROID_6_0)
-    private void encode() throws IOException, ConfigurationException, AudioCaptureException {
-        if (Build.VERSION.SDK_INT < AndroidVersions.API_30_ANDROID_11) {
-            Ln.w("Audio disabled: it is not supported before Android 11");
-            streamer.writeDisableStream(false);
-            return;
-        }
-
+    private void encodeSession(boolean writeHeader) throws IOException, ConfigurationException, AudioCaptureException, InterruptedException {
         MediaCodec mediaCodec = null;
-
         boolean mediaCodecStarted = false;
-        try {
-            capture.checkCompatibility(); // throws an AudioCaptureException on error
 
+        resetEnded();
+        previousPts = 0;
+        inputTasks.clear();
+        outputTasks.clear();
+
+        try {
             Codec codec = streamer.getCodec();
             mediaCodec = createMediaCodec(codec, encoderName);
 
@@ -234,12 +243,18 @@ public final class AudioEncoder implements AsyncProcessor {
 
             capture.start();
 
+            if (writeHeader) {
+                streamer.writeAudioHeader();
+            }
+
             final MediaCodec mediaCodecRef = mediaCodec;
             inputThread = new Thread(() -> {
                 try {
                     inputThread(mediaCodecRef, capture);
                 } catch (IOException | InterruptedException e) {
-                    Ln.e("Audio capture error", e);
+                    if (!isClosedByControl()) {
+                        Ln.e("Audio capture error", e);
+                    }
                 } finally {
                     end();
                 }
@@ -252,7 +267,7 @@ public final class AudioEncoder implements AsyncProcessor {
                     // this is expected on close
                 } catch (IOException e) {
                     // Broken pipe is expected on close, because the socket is closed by the client
-                    if (!IO.isBrokenPipe(e)) {
+                    if (!IO.isBrokenPipe(e) && !isClosedByControl()) {
                         Ln.e("Audio encoding error", e);
                     }
                 } finally {
@@ -266,16 +281,7 @@ public final class AudioEncoder implements AsyncProcessor {
             outputThread.start();
 
             waitEnded();
-        } catch (ConfigurationException e) {
-            // Notify the error to make scrcpy exit
-            streamer.writeDisableStream(true);
-            throw e;
-        } catch (Throwable e) {
-            // Notify the client that the audio could not be captured
-            streamer.writeDisableStream(false);
-            throw e;
         } finally {
-            // Cleanup everything (either at the end or on error at any step of the initialization)
             if (mediaCodecThread != null) {
                 Looper looper = mediaCodecThread.getLooper();
                 if (looper != null) {
@@ -300,9 +306,12 @@ public final class AudioEncoder implements AsyncProcessor {
                     outputThread.join();
                 }
             } catch (InterruptedException e) {
-                // Should never happen
-                throw new AssertionError(e);
+                Thread.currentThread().interrupt();
+                throw e;
             }
+
+            inputTasks.clear();
+            outputTasks.clear();
 
             if (mediaCodec != null) {
                 if (mediaCodecStarted) {
@@ -310,8 +319,52 @@ public final class AudioEncoder implements AsyncProcessor {
                 }
                 mediaCodec.release();
             }
-            if (capture != null) {
-                capture.stop();
+            capture.stop();
+
+            mediaCodecThread = null;
+            inputThread = null;
+            outputThread = null;
+        }
+    }
+
+    @TargetApi(AndroidVersions.API_23_ANDROID_6_0)
+    private void encode() throws IOException, ConfigurationException, AudioCaptureException {
+        if (Build.VERSION.SDK_INT < AndroidVersions.API_30_ANDROID_11) {
+            Ln.w("Audio disabled: it is not supported before Android 11");
+            streamer.writeDisableStream(false);
+            return;
+        }
+
+        capture.checkCompatibility(); // throws an AudioCaptureException on error
+
+        boolean headerWritten = false;
+        while (!stopped.get()) {
+            try {
+                waitUntilCaptureEnabled();
+                if (stopped.get()) {
+                    return;
+                }
+
+                encodeSession(!headerWritten);
+                headerWritten = true;
+            } catch (InterruptedException e) {
+                if (!stopped.get()) {
+                    Thread.currentThread().interrupt();
+                }
+                return;
+            } catch (ConfigurationException e) {
+                streamer.writeDisableStream(true);
+                throw e;
+            } catch (AudioCaptureException e) {
+                if (!isClosedByControl()) {
+                    streamer.writeDisableStream(false);
+                    throw e;
+                }
+            } catch (IOException e) {
+                if (!isClosedByControl()) {
+                    streamer.writeDisableStream(false);
+                    throw e;
+                }
             }
         }
     }

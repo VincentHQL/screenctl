@@ -9,7 +9,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.scrctl.client.core.database.model.Device
@@ -24,16 +23,18 @@ fun HomeScreen(
     onDeviceClick: (Device) -> Unit = {},
     onAddDevice: () -> Unit = {},
 ) {
+    val uiState by viewModel.uiState.collectAsState()
+    
     HomeScreenContent(
-        devices = viewModel.devices,
-        allDevices = viewModel.allDevices,
-        batteryByDeviceId = viewModel.batteryByDeviceId,
-        isConnectedById = viewModel.isConnectedById,
-        searchQuery = viewModel.searchQuery,
-        gridColumns = viewModel.gridColumns,
-        screencapProvider = viewModel::screencapPng,
-        groups = viewModel.groups,
-        selectedGroupId = viewModel.selectedGroupId,
+        devices = uiState.devices,
+        allDevices = uiState.allDevices,
+        isConnectedById = uiState.isConnectedById,
+        connectionErrorById = uiState.connectionErrorById,
+        searchQuery = uiState.searchQuery,
+        gridColumns = uiState.gridColumns,
+        screencapProvider = viewModel::screencapThumbnailPng,
+        groups = uiState.groups,
+        selectedGroupId = uiState.selectedGroupId,
         onSearchQueryChange = viewModel::updateSearchQuery,
         onGridColumnsChange = viewModel::updateGridColumns,
         onDeviceClick = onDeviceClick,
@@ -50,11 +51,11 @@ fun HomeScreen(
 private fun HomeScreenContent(
     devices: List<Device>,
     allDevices: List<Device>,
-    batteryByDeviceId: Map<Long, Int?>,
     isConnectedById: Map<Long, Boolean>,
+    connectionErrorById: Map<Long, String>,
     searchQuery: String,
     gridColumns: Int,
-    screencapProvider: (suspend (Long) -> Result<ByteArray>)?,
+    screencapProvider: (suspend (Long, Int, Int) -> Result<ByteArray>)?,
     groups: List<Group>,
     selectedGroupId: Long?,
     onSearchQueryChange: (String) -> Unit,
@@ -144,8 +145,8 @@ private fun HomeScreenContent(
                 DeviceList(
                     devices = filteredDevices,
                     gridColumns = gridColumns,
-                    batteryByDeviceId = batteryByDeviceId,
                     isConnectedById = isConnectedById,
+                    connectionErrorById = connectionErrorById,
                     screencapProvider = screencapProvider,
                     onDeviceClick = onDeviceClick,
                 )
@@ -160,9 +161,9 @@ private fun HomeScreenContent(
 private fun DeviceList(
     devices: List<Device>,
     gridColumns: Int,
-    batteryByDeviceId: Map<Long, Int?>,
     isConnectedById: Map<Long, Boolean>,
-    screencapProvider: (suspend (Long) -> Result<ByteArray>)?,
+    connectionErrorById: Map<Long, String>,
+    screencapProvider: (suspend (Long, Int, Int) -> Result<ByteArray>)?,
     onDeviceClick: (Device) -> Unit,
 ) {
     if (devices.isEmpty()) {
@@ -187,8 +188,8 @@ private fun DeviceList(
             items(devices, key = { it.id }) { device ->
                 DeviceListRow(
                     device = device,
-                    batteryPercent = batteryByDeviceId[device.id],
                     isOnline = isConnectedById[device.id] == true,
+                    errorText = connectionErrorById[device.id],
                     screencapProvider = screencapProvider,
                     onClick = { onDeviceClick(device) },
                 )
@@ -207,50 +208,12 @@ private fun DeviceList(
             items(devices, key = { it.id }) { device ->
                 DeviceCard(
                     device = device,
-                    batteryPercent = batteryByDeviceId[device.id],
                     isOnline = isConnectedById[device.id] == true,
+                    errorText = connectionErrorById[device.id],
                     screencapProvider = screencapProvider,
                     onClick = { onDeviceClick(device) },
                 )
             }
         }
-    }
-}
-
-// ── Preview ─────────────────────────────────────────────────────────────────────
-
-@Preview(showBackground = true)
-@Composable
-private fun HomeScreenPreview() {
-    MaterialTheme {
-        val previewGroups = listOf(
-            Group(id = 1, name = "默认分组"),
-            Group(id = 2, name = "办公测试"),
-        )
-        val previewDevices = listOf(
-            Device(id = 1, groupId = 1, name = "智能终端 A1", deviceAddr = "192.168.1.10"),
-            Device(id = 2, groupId = 1, name = "智能终端 B2", deviceAddr = "192.168.1.11"),
-            Device(id = 3, groupId = 2, name = "智能终端 C3", deviceAddr = "192.168.1.12"),
-            Device(id = 4, groupId = 2, name = "智能终端 D4", deviceAddr = "192.168.1.13"),
-        )
-
-        HomeScreenContent(
-            devices = previewDevices,
-            allDevices = previewDevices,
-            batteryByDeviceId = emptyMap(),
-            isConnectedById = emptyMap(),
-            searchQuery = "",
-            gridColumns = 2,
-            screencapProvider = null,
-            groups = previewGroups,
-            selectedGroupId = null,
-            onSearchQueryChange = {},
-            onGridColumnsChange = {},
-            onDeviceClick = {},
-            onAddDevice = {},
-            onGroupSelect = {},
-            onAddGroup = {},
-            onDeleteGroup = {},
-        )
     }
 }

@@ -11,6 +11,7 @@ import android.os.Build;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class AudioRawRecorder implements AsyncProcessor {
 
@@ -18,6 +19,7 @@ public final class AudioRawRecorder implements AsyncProcessor {
     private final Streamer streamer;
 
     private Thread thread;
+    private final AtomicBoolean stopped = new AtomicBoolean();
 
     public AudioRawRecorder(AudioCapture capture, Streamer streamer) {
         this.capture = capture;
@@ -31,36 +33,68 @@ public final class AudioRawRecorder implements AsyncProcessor {
             return;
         }
 
+        capture.checkCompatibility();
+
         final ByteBuffer buffer = ByteBuffer.allocateDirect(AudioConfig.MAX_READ_SIZE);
         final MediaCodec.BufferInfo bufferInfo = new MediaCodec.BufferInfo();
+        boolean headerWritten = false;
 
-        try {
+        while (!stopped.get()) {
             try {
+                while (!stopped.get() && !capture.isEnabled()) {
+                    capture.waitUntilEnabled();
+                }
+                if (stopped.get()) {
+                    return;
+                }
+
                 capture.start();
             } catch (Throwable t) {
+                if (t instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                if (stopped.get() || !capture.isEnabled()) {
+                    continue;
+                }
                 // Notify the client that the audio could not be captured
                 streamer.writeDisableStream(false);
-                throw t;
-            }
-
-            streamer.writeAudioHeader();
-            while (!Thread.currentThread().isInterrupted()) {
-                buffer.position(0);
-                int r = capture.read(buffer, bufferInfo);
-                if (r < 0) {
-                    throw new IOException("Could not read audio: " + r);
+                if (t instanceof AudioCaptureException) {
+                    throw (AudioCaptureException) t;
                 }
-                buffer.limit(r);
+                if (t instanceof IOException) {
+                    throw (IOException) t;
+                }
+                throw new IOException("Could not start audio capture", t);
+            }
 
-                streamer.writePacket(buffer, bufferInfo);
+            try {
+                if (!headerWritten) {
+                    streamer.writeAudioHeader();
+                    headerWritten = true;
+                }
+
+                while (!Thread.currentThread().isInterrupted() && !stopped.get() && capture.isEnabled()) {
+                    buffer.position(0);
+                    int r = capture.read(buffer, bufferInfo);
+                    if (r < 0) {
+                        throw new IOException("Could not read audio: " + r);
+                    }
+                    buffer.limit(r);
+
+                    streamer.writePacket(buffer, bufferInfo);
+                }
+            } catch (IOException e) {
+                // Broken pipe is expected on close, because the socket is closed by the client
+                if (IO.isBrokenPipe(e)) {
+                    throw e;
+                }
+                if (!stopped.get() && capture.isEnabled()) {
+                    Ln.e("Audio capture error", e);
+                }
+            } finally {
+                capture.stop();
             }
-        } catch (IOException e) {
-            // Broken pipe is expected on close, because the socket is closed by the client
-            if (!IO.isBrokenPipe(e)) {
-                Ln.e("Audio capture error", e);
-            }
-        } finally {
-            capture.stop();
         }
     }
 
@@ -86,7 +120,9 @@ public final class AudioRawRecorder implements AsyncProcessor {
     @Override
     public void stop() {
         if (thread != null) {
+            stopped.set(true);
             thread.interrupt();
+            capture.stop();
         }
     }
 

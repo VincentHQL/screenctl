@@ -6,6 +6,7 @@ import com.genymobile.scrcpy.device.Size;
 import android.view.Surface;
 
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * A video source which can be rendered on a Surface for encoding.
@@ -17,12 +18,37 @@ public abstract class SurfaceCapture {
     }
 
     private CaptureListener listener;
+    private final AtomicBoolean enabled = new AtomicBoolean(true);
+    private final Object enabledStateChanged = new Object();
 
     /**
      * Notify the listener that the capture has been invalidated (for example, because its size changed).
      */
     protected void invalidate() {
-        listener.onInvalidated();
+        if (listener != null) {
+            listener.onInvalidated();
+        }
+    }
+
+    public void setEnabled(boolean enabled) {
+        boolean changed = this.enabled.getAndSet(enabled) != enabled;
+        if (changed) {
+            synchronized (enabledStateChanged) {
+                enabledStateChanged.notifyAll();
+            }
+        }
+    }
+
+    public boolean isEnabled() {
+        return enabled.get();
+    }
+
+    public void waitUntilEnabled() throws InterruptedException {
+        synchronized (enabledStateChanged) {
+            while (!enabled.get()) {
+                enabledStateChanged.wait();
+            }
+        }
     }
 
     /**

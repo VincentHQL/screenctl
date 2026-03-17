@@ -1,42 +1,61 @@
 package com.scrctl.client.ui.home
 
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.scrctl.client.core.database.model.Device
-import com.scrctl.client.core.devicemanager.DeviceConnectionState
-import com.scrctl.client.ui.components.DeviceView
+import com.scrctl.client.ui.components.StatusDot
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+
+private const val OFFLINE_STATUS_MAX_LEN = 12
 
 // ── List row (single-column layout) ─────────────────────────────────────────────
 
 @Composable
 internal fun DeviceListRow(
     device: Device,
-    batteryPercent: Int?,
     isOnline: Boolean,
-    screencapProvider: (suspend (Long) -> Result<ByteArray>)?,
+    errorText: String?,
+    screencapProvider: (suspend (Long, Int, Int) -> Result<ByteArray>)?,
     onClick: () -> Unit,
 ) {
     val shape = RoundedCornerShape(16.dp)
@@ -44,7 +63,7 @@ internal fun DeviceListRow(
     val primary = MaterialTheme.colorScheme.primary
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
 
-    val statusText = if (isOnline) "在线" else "离线"
+    val statusText = if (isOnline) "在线" else formatOfflineStatus(errorText)
     val statusColor = if (isOnline) primary else onSurfaceVariant.copy(alpha = 0.7f)
 
     Surface(
@@ -73,8 +92,8 @@ internal fun DeviceListRow(
             ) {
                 if (isOnline && screencapProvider != null) {
                     DeviceView(
-                        screencapProvider = { screencapProvider(device.id) },
-                        refreshIntervalMs = 1200L,
+						screencapProvider = { width, height -> screencapProvider(device.id, width, height) },
+                        refreshIntervalMs = 5000L,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -117,11 +136,6 @@ internal fun DeviceListRow(
                         color = statusColor,
                     )
                 }
-                Text(
-                    text = if (batteryPercent != null) "⚡ ${batteryPercent.coerceIn(0, 100)}%" else "⚡ -",
-                    fontSize = 10.sp,
-                    color = onSurfaceVariant.copy(alpha = 0.8f),
-                )
             }
 
             Icon(
@@ -138,16 +152,16 @@ internal fun DeviceListRow(
 @Composable
 internal fun DeviceCard(
     device: Device,
-    batteryPercent: Int?,
     isOnline: Boolean,
-    screencapProvider: (suspend (Long) -> Result<ByteArray>)?,
+    errorText: String?,
+    screencapProvider: (suspend (Long, Int, Int) -> Result<ByteArray>)?,
     onClick: () -> Unit,
 ) {
     val shape = RoundedCornerShape(16.dp)
     val borderColor = MaterialTheme.colorScheme.outlineVariant
     val primary = MaterialTheme.colorScheme.primary
 
-    val statusText = if (isOnline) "在线" else "离线"
+    val statusText = if (isOnline) "在线" else formatOfflineStatus(errorText)
     val statusColor = if (isOnline) primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
 
     Card(
@@ -171,8 +185,8 @@ internal fun DeviceCard(
             ) {
                 if (isOnline && screencapProvider != null) {
                     DeviceView(
-                        screencapProvider = { screencapProvider(device.id) },
-                        refreshIntervalMs = 800L,
+						screencapProvider = { width, height -> screencapProvider(device.id, width, height) },
+                        refreshIntervalMs = 1000L,
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
@@ -195,13 +209,6 @@ internal fun DeviceCard(
                             .background(Color.Black.copy(alpha = 0.08f)),
                     )
                 }
-
-                BatteryPill(
-                    percent = batteryPercent,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(8.dp),
-                )
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -244,57 +251,91 @@ internal fun DeviceCard(
     }
 }
 
-// ── Shared small components ─────────────────────────────────────────────────────
-
 @Composable
-internal fun BatteryPill(
-    percent: Int?,
-    modifier: Modifier = Modifier,
+fun DeviceView(
+	screencapProvider: suspend (width: Int, height: Int) -> Result<ByteArray>,
+	modifier: Modifier = Modifier,
+	refreshIntervalMs: Long = 500L,
 ) {
-    Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color.Black.copy(alpha = 0.35f))
-            .padding(horizontal = 6.dp, vertical = 3.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Text(text = "⚡", color = Color.White, fontSize = 10.sp)
-        Text(
-            text = if (percent != null) "${percent.coerceIn(0, 100)}%" else "-",
-            color = Color.White,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold,
-        )
-    }
+	var imageBytes by remember { mutableStateOf<ByteArray?>(null) }
+	var lastError by remember { mutableStateOf<String?>(null) }
+	var loading by remember { mutableStateOf(true) }
+	var isVisible by remember { mutableStateOf(false) }
+	var viewSize by remember { mutableStateOf(IntSize.Zero) }
+
+	LaunchedEffect(screencapProvider, refreshIntervalMs, isVisible, viewSize) {
+		if (!isVisible) return@LaunchedEffect
+		if (viewSize.width <= 0 || viewSize.height <= 0) return@LaunchedEffect
+
+		loading = true
+		lastError = null
+
+		while (isActive) {
+			val result = screencapProvider(viewSize.width, viewSize.height)
+			if (result.isSuccess) {
+				imageBytes = result.getOrNull()
+				loading = false
+				lastError = null
+			} else {
+				loading = false
+				lastError = result.exceptionOrNull()?.message ?: "获取画面失败"
+			}
+			delay(refreshIntervalMs)
+		}
+	}
+
+	val bg = MaterialTheme.colorScheme.surfaceVariant
+	Box(
+		modifier = modifier
+			.clip(RoundedCornerShape(16.dp))
+			.background(bg)
+			.onGloballyPositioned { coordinates ->
+				viewSize = coordinates.size
+				isVisible = if (!coordinates.isAttached) {
+					false
+				} else {
+					val bounds = coordinates.boundsInWindow()
+					bounds.width > 0f && bounds.height > 0f
+				}
+			},
+		contentAlignment = Alignment.Center,
+	) {
+		val bytes = imageBytes
+		val bitmap = remember(bytes) {
+			bytes?.let {
+				BitmapFactory.decodeByteArray(it, 0, it.size)
+			}
+		}
+
+		if (bitmap != null) {
+			Image(
+				bitmap = bitmap.asImageBitmap(),
+				contentDescription = "device_screen",
+				contentScale = ContentScale.Crop,
+				modifier = Modifier.fillMaxSize(),
+			)
+		}
+
+		when {
+			loading && bitmap == null -> {
+				CircularProgressIndicator()
+			}
+			bitmap == null && lastError != null -> {
+				Text(
+					text = lastError ?: "未知错误",
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+					textAlign = TextAlign.Center,
+					modifier = Modifier.padding(12.dp),
+				)
+			}
+		}
+	}
 }
 
-@Composable
-internal fun StatusDot(
-    isOnline: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    val baseColor = if (isOnline) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+private fun formatOfflineStatus(errorText: String?): String {
+    val raw = errorText?.trim().takeUnless { it.isNullOrEmpty() } ?: return "离线"
+    if (raw.length <= OFFLINE_STATUS_MAX_LEN) {
+        return raw
     }
-
-    val transition = rememberInfiniteTransition(label = "statusDot")
-    val pulseAlpha by transition.animateFloat(
-        initialValue = 0.4f,
-        targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 900),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "statusDotAlpha",
-    )
-
-    Box(
-        modifier = modifier
-            .size(6.dp)
-            .clip(CircleShape)
-            .background(baseColor.copy(alpha = if (isOnline) pulseAlpha else 0.85f)),
-    )
+    return raw.take(OFFLINE_STATUS_MAX_LEN - 1) + "…"
 }

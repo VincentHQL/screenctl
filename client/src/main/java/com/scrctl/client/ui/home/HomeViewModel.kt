@@ -14,7 +14,9 @@ import com.scrctl.client.core.repository.DeviceRepository
 import com.scrctl.client.core.repository.GroupRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -30,59 +32,39 @@ class HomeViewModel @Inject constructor(
 ) : ViewModel() {
     private var defaultsEnsured = false
 
-    var groups by mutableStateOf(listOf<Group>())
-        private set
+    private val _uiState = MutableStateFlow(HomeUiState())
+    val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
-    var selectedGroupId by mutableStateOf<Long?>(null)
-        private set
+    // Legacy properties for backward compatibility
+    val groups: List<Group> get() = _uiState.value.groups
+    val devices: List<Device> get() = _uiState.value.devices
 
-    var allDevices by mutableStateOf(listOf<Device>())
-        private set
-
-    var devices by mutableStateOf(listOf<Device>())
-        private set
-
-    var batteryByDeviceId by mutableStateOf<Map<Long, Int?>>(emptyMap())
-        private set
-
-    var isConnectedById by mutableStateOf<Map<Long, Boolean>>(emptyMap())
-        private set
-
-    private val batteryJobs = mutableMapOf<Long, Job>()
-    private val batteryUpdatedAt = mutableMapOf<Long, Long>()
-    
-    var searchQuery by mutableStateOf("")
-        private set
-    
-    var gridColumns by mutableStateOf(2)
-        private set
-    
     init {
         observeGroups()
         observeDevices()
-
-        deviceManager.observeConnectedById()
-            .onEach { map ->
-                isConnectedById = map
-                refreshBatteries(allDevices, map.filterValues { it }.keys)
-            }
-            .launchIn(viewModelScope)
+        observeConnectivity()
+        observeConnectionErrors()
     }
 
     fun selectGroup(groupId: Long?) {
-        selectedGroupId = groupId
-        recomputeFilteredDevices()
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(selectedGroupId = groupId)
+            recomputeFilteredDevices()
+        }
     }
-    
+
     fun updateSearchQuery(query: String) {
-        searchQuery = query
-        recomputeFilteredDevices()
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(searchQuery = query)
+            recomputeFilteredDevices()
+        }
     }
     
     fun updateGridColumns(columns: Int) {
-        gridColumns = columns
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(gridColumns = columns)
+        }
     }
-
 
     fun addGroup(name: String) {
         val trimmed = name.trim()
@@ -105,9 +87,8 @@ class HomeViewModel @Inject constructor(
                 groupRepository.deleteGroupById(group.id)
             }
 
-            if (selectedGroupId == group.id) {
-                selectedGroupId = null
-                recomputeFilteredDevices()
+            if (_uiState.value.selectedGroupId == group.id) {
+                selectGroup(null)
             }
         }
     }
@@ -115,7 +96,7 @@ class HomeViewModel @Inject constructor(
     private fun observeGroups() {
         groupRepository.getAllGroups()
             .onEach { groupList ->
-                groups = groupList
+                _uiState.value = _uiState.value.copy(groups = groupList)
                 ensureDefaultGroupsIfNeeded(groupList)
             }
             .launchIn(viewModelScope)
@@ -124,61 +105,26 @@ class HomeViewModel @Inject constructor(
     private fun observeDevices() {
         deviceRepository.getAllDevices()
             .onEach { deviceList ->
-                allDevices = deviceList
+                _uiState.value = _uiState.value.copy(allDevices = deviceList)
                 recomputeFilteredDevices()
-                refreshBatteries(deviceList, isConnectedById.filterValues { it }.keys)
             }
             .launchIn(viewModelScope)
     }
 
-    private fun refreshBatteries(devices: List<Device>, connectedIds: Set<Long>) {
-
-        // Remove stale entries/jobs for non-connected devices
-        val toRemove = batteryByDeviceId.keys - connectedIds
-        if (toRemove.isNotEmpty()) {
-            val next = batteryByDeviceId.toMutableMap()
-            toRemove.forEach {
-                batteryJobs.remove(it)?.cancel()
-                batteryUpdatedAt.remove(it)
-                next.remove(it)
+    private fun observeConnectivity() {
+        deviceManager.observeConnectedById()
+            .onEach { snapshot ->
+                _uiState.value = _uiState.value.copy(isConnectedById = snapshot)
             }
-            batteryByDeviceId = next
-        }
-
-        // Refresh connected devices (throttled)
-        for (id in connectedIds) {
-            if (batteryJobs[id]?.isActive == true) continue
-            val now = System.currentTimeMillis()
-            val last = batteryUpdatedAt[id] ?: 0L
-            if (now - last < 20_000) continue
-
-            batteryJobs[id] = viewModelScope.launch {
-                val out = withContext(ioDispatcher) {
-                    deviceManager.shell(id, "dumpsys battery")
-                }
-
-                val percent = if (out.isSuccess) {
-                    parseBatteryPercent(out.getOrNull().orEmpty())
-                } else {
-                    null
-                }
-
-                val next = batteryByDeviceId.toMutableMap()
-                next[id] = percent
-                batteryByDeviceId = next
-                batteryUpdatedAt[id] = System.currentTimeMillis()
-            }
-        }
+            .launchIn(viewModelScope)
     }
 
-    private fun parseBatteryPercent(output: String): Int? {
-        val level = Regex("(?m)^\\s*level:\\s*(\\d+)\\s*$").find(output)?.groupValues?.getOrNull(1)?.toIntOrNull()
-        val scale = Regex("(?m)^\\s*scale:\\s*(\\d+)\\s*$").find(output)?.groupValues?.getOrNull(1)?.toIntOrNull()
-        return when {
-            level == null -> null
-            scale != null && scale > 0 -> ((level.toDouble() / scale.toDouble()) * 100.0).toInt().coerceIn(0, 100)
-            else -> level.coerceIn(0, 100)
-        }
+    private fun observeConnectionErrors() {
+        deviceManager.observeErrorById()
+            .onEach { snapshot ->
+                _uiState.value = _uiState.value.copy(connectionErrorById = snapshot)
+            }
+            .launchIn(viewModelScope)
     }
 
     private fun ensureDefaultGroupsIfNeeded(current: List<Group>) {
@@ -197,13 +143,14 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun recomputeFilteredDevices() {
-        val query = searchQuery.trim()
-        val base = when (val gid = selectedGroupId) {
-            null -> allDevices
-            else -> allDevices.filter { it.groupId == gid }
+        val currentState = _uiState.value
+        val query = currentState.searchQuery.trim()
+        val base = when (val gid = currentState.selectedGroupId) {
+            null -> currentState.allDevices
+            else -> currentState.allDevices.filter { it.groupId == gid }
         }
 
-        devices = if (query.isEmpty()) {
+        val filteredDevices = if (query.isEmpty()) {
             base
         } else {
             base.filter {
@@ -212,10 +159,13 @@ class HomeViewModel @Inject constructor(
                     it.id.toString().contains(query)
             }
         }
+        
+        _uiState.value = currentState.copy(devices = filteredDevices)
     }
 
-    /** 代理 [DeviceManager.screencapPng]，供 Composable 使用。 */
-    suspend fun screencapPng(deviceId: Long): Result<ByteArray> {
-        return deviceManager.screencapPng(deviceId)
+    /** 通过 DeviceManager 获取 Kadb 并执行 scrcpy server 拉取首页缩略图。 */
+    suspend fun screencapThumbnailPng(deviceId: Long, width: Int, height: Int): Result<ByteArray> {
+        return deviceManager.screencapThumbnailPng(deviceId, width, height)
     }
+
 }

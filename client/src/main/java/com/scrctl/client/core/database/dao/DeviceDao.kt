@@ -25,32 +25,6 @@ abstract class DeviceDao : BaseDao<Device> {
     @Query("SELECT * FROM devices WHERE id = :id")
     abstract fun observeById(id: Long): Flow<Device?>
 
-    @Query(
-        """
-        UPDATE devices SET
-            model = :model,
-            android_version = :androidVersion,
-            api_level = :apiLevel,
-            brand = :brand,
-            manufacturer = :manufacturer,
-            serial_number = :serialNumber,
-            cpu_abi = :cpuAbi,
-            updated_at = :updatedAt
-        WHERE id = :id
-        """
-    )
-    abstract suspend fun updateDeviceInfo(
-        id: Long,
-        model: String,
-        androidVersion: String,
-        apiLevel: String,
-        brand: String,
-        manufacturer: String,
-        serialNumber: String,
-        cpuAbi: String,
-        updatedAt: Long,
-    ): Int
-
     @Query("DELETE FROM devices WHERE id = :id")
     abstract suspend fun deleteById(id: Long): Int
 

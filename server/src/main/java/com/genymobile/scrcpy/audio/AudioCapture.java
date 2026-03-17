@@ -8,6 +8,9 @@ public interface AudioCapture {
     void checkCompatibility() throws AudioCaptureException;
     void start() throws AudioCaptureException;
     void stop();
+    void setEnabled(boolean enabled);
+    boolean isEnabled();
+    void waitUntilEnabled() throws InterruptedException;
 
     /**
      * Read a chunk of {@link AudioConfig#MAX_READ_SIZE} samples.

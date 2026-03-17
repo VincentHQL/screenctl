@@ -159,11 +159,9 @@ public final class DesktopConnection implements Closeable {
         int len = StringUtils.getUtf8TruncationIndex(deviceNameBytes, DEVICE_NAME_FIELD_LENGTH - 1);
         System.arraycopy(deviceNameBytes, 0, buffer, 0, len);
         // byte[] are always 0-initialized in java, no need to set '\0' explicitly
-        LocalSocket firstSocket = getFirstSocket();
-        if (firstSocket != null) {
-            FileDescriptor fd = firstSocket.getFileDescriptor();
-            IO.writeFully(fd, buffer, 0, buffer.length);
-        }
+
+        FileDescriptor fd = getFirstSocket().getFileDescriptor();
+        IO.writeFully(fd, buffer, 0, buffer.length);
     }
 
     public FileDescriptor getVideoFd() {

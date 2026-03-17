@@ -26,6 +26,8 @@ public class Options {
     private int scid = -1; // 31-bit non-negative value, or -1
     private boolean video = true;
     private boolean audio = true;
+    private boolean lazyVideo;
+    private boolean lazyAudio;
     private int maxSize;
     private VideoCodec videoCodec = VideoCodec.H264;
     private AudioCodec audioCodec = AudioCodec.OPUS;
@@ -74,15 +76,17 @@ public class Options {
     private boolean listCameraSizes;
     private boolean listApps;
 
+    private boolean screencap;
+
+    private Size screenCapSize;
+    private Size wmSize;
+    private int wmDensity;
+
     // Options not used by the scrcpy client, but useful to use scrcpy-server directly
     private boolean sendDeviceMeta = true; // send device name and size
     private boolean sendFrameMeta = true; // send PTS so that the client may record properly
     private boolean sendDummyByte = true; // write a byte on start to detect connection issues
     private boolean sendCodecMeta = true; // write the codec metadata before the stream
-
-    private boolean agent = false;
-
-    private boolean rtc = false;
 
     public Ln.Level getLogLevel() {
         return logLevel;
@@ -98,6 +102,14 @@ public class Options {
 
     public boolean getAudio() {
         return audio;
+    }
+
+    public boolean getLazyVideo() {
+        return lazyVideo;
+    }
+
+    public boolean getLazyAudio() {
+        return lazyAudio;
     }
 
     public int getMaxSize() {
@@ -276,6 +288,22 @@ public class Options {
         return listApps;
     }
 
+    public boolean getScreenCap() {
+        return screencap;
+    }
+
+    public Size getScreenCapSize() {
+        return screenCapSize;
+    }
+
+    public Size getWmSize() {
+        return wmSize;
+    }
+
+    public int getWmDensity() {
+        return wmDensity;
+    }
+
     public boolean getSendDeviceMeta() {
         return sendDeviceMeta;
     }
@@ -290,22 +318,6 @@ public class Options {
 
     public boolean getSendCodecMeta() {
         return sendCodecMeta;
-    }
-
-    public boolean getAgent() {
-        return agent;
-    }
-
-    public void setAgent(boolean agent) {
-        this.agent = agent;
-    }
-
-    public boolean getRtc() {
-        return rtc;
-    }
-
-    public void setRtc(boolean rtc) {
-        this.rtc = rtc;
     }
 
     @SuppressWarnings("MethodLength")
@@ -346,6 +358,12 @@ public class Options {
                     break;
                 case "audio":
                     options.audio = Boolean.parseBoolean(value);
+                    break;
+                case "lazy_video":
+                    options.lazyVideo = Boolean.parseBoolean(value);
+                    break;
+                case "lazy_audio":
+                    options.lazyAudio = Boolean.parseBoolean(value);
                     break;
                 case "video_codec":
                     VideoCodec videoCodec = VideoCodec.findByName(value);
@@ -532,11 +550,28 @@ public class Options {
                         options.sendCodecMeta = false;
                     }
                     break;
-                case "monitor":
-                    options.agent = Boolean.parseBoolean(value);
+                case "screen_cap_size":
+                    if (!value.isEmpty()) {
+                        options.screenCapSize = parseSize(value);
+                    } else {
+                        options.screenCapSize = new Size(0, 0);
+                    }
                     break;
-                case "rtc":
-                    options.rtc = Boolean.parseBoolean(value);
+                case "screen_cap":
+                    options.screencap = Boolean.parseBoolean(value);
+                    break;
+                case "wm_size":
+                    if (!value.isEmpty()) {
+                        options.wmSize = parseSize(value);
+                    }
+                    break;
+                case "wm_density":
+                    if (!value.isEmpty()) {
+                        options.wmDensity = Integer.parseInt(value);
+                        if (options.wmDensity <= 0) {
+                            throw new IllegalArgumentException("wm_density must be > 0");
+                        }
+                    }
                     break;
                 default:
                     Ln.w("Unknown server option: " + key);
@@ -547,6 +582,18 @@ public class Options {
         if (options.newDisplay != null) {
             assert options.displayId == 0 : "Must not set both displayId and newDisplay";
             options.displayId = Device.DISPLAY_ID_NONE;
+        }
+
+        if (options.lazyAudio && !options.audio) {
+            throw new IllegalArgumentException("lazy_audio requires audio=true");
+        }
+
+        if (options.lazyVideo && !options.video) {
+            throw new IllegalArgumentException("lazy_video requires video=true");
+        }
+
+        if ((options.lazyAudio || options.lazyVideo) && !options.control) {
+            throw new IllegalArgumentException("lazy_audio/lazy_video require control=true");
         }
 
         return options;

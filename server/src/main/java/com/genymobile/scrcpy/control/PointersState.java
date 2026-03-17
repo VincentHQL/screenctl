@@ -46,6 +46,10 @@ public class PointersState {
         return pointers.get(index);
     }
 
+    public int findPointerIndex(long id) {
+        return indexOf(id);
+    }
+
     public int getPointerIndex(long id) {
         int index = indexOf(id);
         if (index != -1) {
@@ -89,6 +93,12 @@ public class PointersState {
         }
         cleanUp();
         return count;
+    }
+
+    public void markAllUp() {
+        for (int i = 0; i < pointers.size(); ++i) {
+            pointers.get(i).setUp(true);
+        }
     }
 
     /**

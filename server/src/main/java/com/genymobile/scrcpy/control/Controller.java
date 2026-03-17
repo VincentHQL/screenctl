@@ -4,6 +4,7 @@ import com.genymobile.scrcpy.AndroidVersions;
 import com.genymobile.scrcpy.AsyncProcessor;
 import com.genymobile.scrcpy.CleanUp;
 import com.genymobile.scrcpy.Options;
+import com.genymobile.scrcpy.audio.AudioCapture;
 import com.genymobile.scrcpy.device.Device;
 import com.genymobile.scrcpy.device.DeviceApp;
 import com.genymobile.scrcpy.device.DisplayInfo;
@@ -99,6 +100,7 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
 
     // Used for resetting video encoding on RESET_VIDEO message
     private SurfaceCapture surfaceCapture;
+    private AudioCapture audioCapture;
 
     public Controller(ControlChannel controlChannel, CleanUp cleanUp, Options options) {
         this.displayId = options.getDisplayId();
@@ -148,8 +150,17 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
         }
     }
 
+    @Override
+    public void onDisplayRotationChanged(int rotation) {
+        sender.send(DeviceMessage.createDisplayRotation(rotation));
+    }
+
     public void setSurfaceCapture(SurfaceCapture surfaceCapture) {
         this.surfaceCapture = surfaceCapture;
+    }
+
+    public void setAudioCapture(AudioCapture audioCapture) {
+        this.audioCapture = audioCapture;
     }
 
     private UhidManager getUhidManager() {
@@ -280,6 +291,11 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
                     injectTouch(msg.getAction(), msg.getPointerId(), msg.getPosition(), msg.getPressure(), msg.getActionButton(), msg.getButtons());
                 }
                 break;
+            case ControlMessage.TYPE_INJECT_MULTI_TOUCH_EVENT:
+                if (supportsInputEvents) {
+                    injectMultiTouch(msg.getAction(), msg.getActionIndex(), msg.getTouchPointers(), msg.getActionButton(), msg.getButtons());
+                }
+                break;
             case ControlMessage.TYPE_INJECT_SCROLL_EVENT:
                 if (supportsInputEvents) {
                     injectScroll(msg.getPosition(), msg.getHScroll(), msg.getVScroll(), msg.getButtons());
@@ -330,6 +346,12 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
                 break;
             case ControlMessage.TYPE_RESET_VIDEO:
                 resetVideo();
+                break;
+            case ControlMessage.TYPE_SET_VIDEO_ENABLED:
+                setVideoOutputEnabled(msg.getEnabled());
+                break;
+            case ControlMessage.TYPE_SET_AUDIO_ENABLED:
+                setAudioOutputEnabled(msg.getEnabled());
                 break;
             default:
                 // do nothing
@@ -511,6 +533,82 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
             }
         }
 
+        MotionEvent event = MotionEvent.obtain(lastTouchDown, now, action, pointerCount, pointerProperties, pointerCoords, 0, buttons, 1f, 1f,
+                DEFAULT_DEVICE_ID, 0, source, 0);
+        return Device.injectEvent(event, targetDisplayId, Device.INJECT_MODE_ASYNC);
+    }
+
+    private boolean injectMultiTouch(int action, int actionIndex, ControlMessage.TouchPointer[] touchPointers, int actionButton, int buttons) {
+        long now = SystemClock.uptimeMillis();
+        if (touchPointers == null || touchPointers.length == 0) {
+            return false;
+        }
+
+        int targetDisplayId = Device.DISPLAY_ID_NONE;
+        long actionPointerId = touchPointers[actionIndex].getPointerId();
+        int actionPointerIndex = -1;
+
+        for (ControlMessage.TouchPointer touchPointer : touchPointers) {
+            Pair<Point, Integer> pair = getEventPointAndDisplayId(touchPointer.getPosition());
+            if (pair == null) {
+                return false;
+            }
+
+            if (targetDisplayId == Device.DISPLAY_ID_NONE) {
+                targetDisplayId = pair.second;
+            } else if (targetDisplayId != pair.second) {
+                Ln.w("Multi-touch event spans several displays, ignoring");
+                return false;
+            }
+
+            int pointerIndex = pointersState.getPointerIndex(touchPointer.getPointerId());
+            if (pointerIndex == -1) {
+                Ln.w("Too many pointers for multi-touch event");
+                return false;
+            }
+            Pointer pointer = pointersState.get(pointerIndex);
+            pointer.setPoint(pair.first);
+            pointer.setPressure(touchPointer.getPressure());
+            pointer.setUp(false);
+
+            if (touchPointer.getPointerId() == actionPointerId) {
+                actionPointerIndex = pointerIndex;
+            }
+        }
+
+        if (actionPointerIndex == -1) {
+            Ln.w("Action pointer not found for multi-touch event");
+            return false;
+        }
+
+        int source = InputDevice.SOURCE_TOUCHSCREEN;
+        buttons = 0;
+
+        switch (action) {
+            case MotionEvent.ACTION_DOWN:
+                lastTouchDown = now;
+                break;
+            case MotionEvent.ACTION_POINTER_DOWN:
+                action = MotionEvent.ACTION_POINTER_DOWN | (actionPointerIndex << MotionEvent.ACTION_POINTER_INDEX_SHIFT);
+                break;
+            case MotionEvent.ACTION_POINTER_UP:
+                pointersState.get(actionPointerIndex).setUp(true);
+                action = MotionEvent.ACTION_POINTER_UP | (actionPointerIndex << MotionEvent.ACTION_POINTER_INDEX_SHIFT);
+                break;
+            case MotionEvent.ACTION_UP:
+                pointersState.get(actionPointerIndex).setUp(true);
+                break;
+            case MotionEvent.ACTION_CANCEL:
+                pointersState.markAllUp();
+                break;
+            case MotionEvent.ACTION_MOVE:
+                break;
+            default:
+                Ln.w("Unsupported multi-touch action: " + action);
+                return false;
+        }
+
+        int pointerCount = pointersState.update(pointerProperties, pointerCoords);
         MotionEvent event = MotionEvent.obtain(lastTouchDown, now, action, pointerCount, pointerProperties, pointerCoords, 0, buttons, 1f, 1f,
                 DEFAULT_DEVICE_ID, 0, source, 0);
         return Device.injectEvent(event, targetDisplayId, Device.INJECT_MODE_ASYNC);
@@ -744,6 +842,38 @@ public class Controller implements AsyncProcessor, VirtualDisplayListener {
             if (cleanUp != null) {
                 boolean mustRestoreOnExit = !on;
                 cleanUp.setRestoreDisplayPower(mustRestoreOnExit);
+            }
+        }
+    }
+
+    private void setVideoOutputEnabled(boolean enabled) {
+        if (surfaceCapture == null) {
+            Ln.w("Ignoring video output toggle: video stream is not available");
+            return;
+        }
+
+        boolean changed = surfaceCapture.isEnabled() != enabled;
+        surfaceCapture.setEnabled(enabled);
+        if (changed) {
+            Ln.i("Video output " + (enabled ? "enabled" : "disabled"));
+            if (!enabled) {
+                surfaceCapture.requestInvalidate();
+            }
+        }
+    }
+
+    private void setAudioOutputEnabled(boolean enabled) {
+        if (audioCapture == null) {
+            Ln.w("Ignoring audio output toggle: audio stream is not available");
+            return;
+        }
+
+        boolean changed = audioCapture.isEnabled() != enabled;
+        audioCapture.setEnabled(enabled);
+        if (changed) {
+            Ln.i("Audio output " + (enabled ? "enabled" : "disabled"));
+            if (!enabled) {
+                audioCapture.stop();
             }
         }
     }

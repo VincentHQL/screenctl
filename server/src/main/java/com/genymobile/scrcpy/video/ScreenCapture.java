@@ -157,6 +157,7 @@ public class ScreenCapture extends SurfaceCapture {
                 virtualDisplayId = virtualDisplay.getDisplay().getDisplayId();
             }
             vdListener.onNewVirtualDisplay(virtualDisplayId, positionMapper);
+            vdListener.onDisplayRotationChanged(displayInfo.getRotation());
         }
     }
 

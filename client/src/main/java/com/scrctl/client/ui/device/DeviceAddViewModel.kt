@@ -6,7 +6,6 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.flyfishxu.kadb.Kadb
-import com.scrctl.client.core.devicemanager.DeviceManager
 import com.scrctl.client.core.Dispatcher
 import com.scrctl.client.core.ScrctlDispatchers
 import com.scrctl.client.core.database.model.Device
@@ -15,20 +14,16 @@ import com.scrctl.client.core.repository.DeviceRepository
 import com.scrctl.client.core.repository.GroupRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import javax.inject.Inject
 
 @HiltViewModel
 class DeviceAddViewModel @Inject constructor(
     private val groupRepository: GroupRepository,
     private val deviceRepository: DeviceRepository,
-    private val deviceManager: DeviceManager,
     @param:Dispatcher(ScrctlDispatchers.IO) private val ioDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
 
@@ -50,7 +45,6 @@ class DeviceAddViewModel @Inject constructor(
 
     private suspend fun addDeviceInternal(
         groupId: Long,
-        method: ConnectionMethod,
         deviceName: String,
         adbPort: Int,
         ipAddress: String,
@@ -77,7 +71,6 @@ class DeviceAddViewModel @Inject constructor(
         adbPort: Int,
         pairingPort: Int = 0,
         pairingCode: String = "",
-        timeoutMs: Long = 15_000,
     ): Result<Long> {
         val host = ipAddress.trim()
         val trimmedPairCode = pairingCode.trim()
@@ -95,33 +88,12 @@ class DeviceAddViewModel @Inject constructor(
 
                 val id = addDeviceInternal(
                     groupId = groupId,
-                    method = method,
                     deviceName = deviceName,
                     adbPort = adbPort,
                     ipAddress = host,
                 )
 
-                deviceManager.reconnect(id)
-
-                try {
-                    waitUntilConnected(id, timeoutMs)
-                    id
-                } catch (t: Throwable) {
-                    deviceRepository.deleteDeviceById(id)
-                    if (t is TimeoutCancellationException) {
-                        throw IllegalStateException("连接超时")
-                    }
-                    throw t
-                }
-            }
-        }
-    }
-
-    private suspend fun waitUntilConnected(deviceId: Long, timeoutMs: Long) {
-        withTimeout(timeoutMs) {
-            while (true) {
-                if (deviceManager.isConnected(deviceId)) return@withTimeout
-                delay(300)
+                id
             }
         }
     }

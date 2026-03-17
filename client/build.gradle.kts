@@ -1,3 +1,18 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.gradle.api.DefaultTask
+import org.gradle.api.GradleException
+import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.FileSystemOperations
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.TaskAction
+import javax.inject.Inject
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -6,20 +21,11 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-import org.gradle.api.DefaultTask
-import org.gradle.api.GradleException
-import org.gradle.api.file.DirectoryProperty
-import org.gradle.api.file.FileSystemOperations
-import org.gradle.api.provider.Property
-import org.gradle.api.tasks.Input
-import org.gradle.api.tasks.InputDirectory
-import org.gradle.api.tasks.OutputDirectory
-import org.gradle.api.tasks.TaskAction
-import javax.inject.Inject
-
 abstract class CopyServerApkToAssetsTask : DefaultTask() {
-    @get:InputDirectory
-    abstract val serverApkDir: DirectoryProperty
+    // 使用 InputFiles 替代 InputDirectory，规避目录不存在时的验证报错
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val serverApkFiles: ConfigurableFileCollection
 
     @get:OutputDirectory
     abstract val outputDir: DirectoryProperty
@@ -32,13 +38,13 @@ abstract class CopyServerApkToAssetsTask : DefaultTask() {
 
     @TaskAction
     fun run() {
-        val apkDirFile = serverApkDir.get().asFile
-        val apkFile = apkDirFile
-            .listFiles()
-            ?.filter { it.isFile && it.extension.equals("apk", ignoreCase = true) }
-            ?.maxByOrNull { it.lastModified() }
+        // 在执行时查找最新的 APK
+        val apkFile = serverApkFiles.files
+            .flatMap { if (it.isDirectory) it.walkTopDown().toList() else listOf(it) }
+            .filter { it.isFile && it.extension.equals("apk", ignoreCase = true) }
+            .maxByOrNull { it.lastModified() }
             ?: throw GradleException(
-                "No server APK found in: ${apkDirFile.absolutePath}. Ensure the server module produces an APK for this buildType."
+                "No server APK found in provided inputs. Ensure the server module is built correctly."
             )
 
         fileSystemOperations.copy {
@@ -72,18 +78,12 @@ android {
             )
         }
     }
-    testOptions {
-        unitTests {
-            isReturnDefaultValues = true
-        }
-    }
+
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.toVersion(Configurations.jdkVersion)
+        targetCompatibility = JavaVersion.toVersion(Configurations.jdkVersion)
     }
-    kotlinOptions {
-        jvmTarget = "11"
-    }
+
     buildFeatures {
         compose = true
         buildConfig = true
@@ -91,19 +91,17 @@ android {
 
     packaging {
         resources {
-            excludes += setOf(
-                "META-INF/versions/9/OSGI-INF/MANIFEST.MF",
-            )
-        }
-    }
-    sourceSets {
-        getByName("main") {
-            aidl {
-                srcDirs("src/main/aidl")
-            }
+            excludes += setOf("META-INF/versions/9/OSGI-INF/MANIFEST.MF")
         }
     }
 }
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.fromTarget(Configurations.jdkVersion.toString()))
+    }
+}
+
 
 androidComponents {
     onVariants(selector().all()) { variant ->
@@ -115,18 +113,23 @@ androidComponents {
         val serverAssembleTaskPath = ":server:assemble$buildTypeCap"
 
         val copyServerApkTask = tasks.register<CopyServerApkToAssetsTask>("copyServerApkToAssets$variantCap") {
+            // 显式依赖 server 的编译任务
             dependsOn(serverAssembleTaskPath)
 
-            serverApkDir.set(serverProject.layout.buildDirectory.dir("outputs/apk/$buildType"))
+            // 使用 ConfigurableFileCollection 收集文件
+            serverApkFiles.from(serverProject.layout.buildDirectory.dir("outputs/apk/$buildType"))
             outputDir.set(layout.buildDirectory.dir("generated/serverApkAssets/${variant.name}"))
             outputFileName.set("scrcpy-server.jar")
         }
 
+        // 注册生成的 assets 目录
         variant.sources.assets?.addGeneratedSourceDirectory(copyServerApkTask, CopyServerApkToAssetsTask::outputDir)
     }
 }
 
 dependencies {
+    implementation(project(":kadb"))
+
     // Compose
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -138,26 +141,18 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.navigation.compose)
-
-    // Icons (extended set, used by Home screen view toggles)
-    implementation("androidx.compose.material:material-icons-extended")
-
-    // Image Loader
+    implementation(libs.androidx.material.icons.extended)
     implementation(libs.coil.kt.compose)
 
-    // Dependency injection
-    implementation(libs.androidx.hilt.navigation.compose)
+    // DI
     implementation(libs.hilt.android)
+    implementation(libs.androidx.hilt.navigation.compose)
     ksp(libs.hilt.compiler)
 
-    // Networking
+    // Networking & JSON
     implementation(libs.okhttp3)
     implementation(libs.okhttp.logging)
-    // JSON parsing
-    implementation("com.google.code.gson:gson:2.10.1")
-
-    // ADB (Kadb)
-    implementation(libs.kadb)
+    implementation(libs.gson)
 
     // Database
     implementation(libs.androidx.room.runtime)
@@ -166,19 +161,7 @@ dependencies {
 
     // Test
     testImplementation(libs.junit)
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
-    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
-    testImplementation("com.google.truth:truth:1.1.5")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
-    androidTestImplementation(platform(libs.androidx.compose.bom))
-    androidTestImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.tooling)
-    debugImplementation(libs.androidx.ui.test.manifest)
-
-
-    implementation(fileTree(mapOf(
-        "dir" to "libs",
-        "include" to listOf("*.aar", "*.jar")
-    )))
 }

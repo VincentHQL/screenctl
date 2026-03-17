@@ -1,6 +1,9 @@
 package com.genymobile.scrcpy;
 
 import com.genymobile.scrcpy.device.Device;
+import com.genymobile.scrcpy.device.DisplayInfo;
+import com.genymobile.scrcpy.device.Size;
+import com.genymobile.scrcpy.util.Command;
 import com.genymobile.scrcpy.util.Ln;
 import com.genymobile.scrcpy.util.Settings;
 import com.genymobile.scrcpy.util.SettingsException;
@@ -14,6 +17,8 @@ import android.system.Os;
 import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Handle the cleanup of scrcpy, even if the main process is killed.
@@ -21,6 +26,9 @@ import java.io.OutputStream;
  * This is useful to restore some state when scrcpy is closed, even on device disconnection (which kills the scrcpy process).
  */
 public final class CleanUp {
+    private static final String RESTORE_RESET = "__RESET__";
+    private static final Pattern WM_SIZE_OVERRIDE_PATTERN = Pattern.compile("Override size:\\s*(\\d+x\\d+)");
+    private static final Pattern WM_DENSITY_OVERRIDE_PATTERN = Pattern.compile("Override density:\\s*(\\d+)");
 
     // Dynamic options
     private static final int PENDING_CHANGE_DISPLAY_POWER = 1 << 0;
@@ -113,17 +121,38 @@ public final class CleanUp {
             }
         }
 
+        String restoreWmSize = null;
+        Size wmSize = options.getWmSize();
+        if (wmSize != null) {
+            try {
+                restoreWmSize = applyWmSize(displayId, wmSize);
+            } catch (IOException | InterruptedException e) {
+                Ln.e("Could not change display size", e);
+            }
+        }
+
+        String restoreWmDensity = null;
+        int wmDensity = options.getWmDensity();
+        if (wmDensity > 0) {
+            try {
+                restoreWmDensity = applyWmDensity(displayId, wmDensity);
+            } catch (IOException | InterruptedException e) {
+                Ln.e("Could not change display density", e);
+            }
+        }
+
         boolean powerOffScreen = options.getPowerOffScreenOnClose();
 
         try {
-            run(displayId, restoreStayOn, disableShowTouches, powerOffScreen, restoreScreenOffTimeout, restoreDisplayImePolicy);
+            run(displayId, restoreStayOn, disableShowTouches, powerOffScreen, restoreScreenOffTimeout, restoreDisplayImePolicy,
+                    restoreWmSize, restoreWmDensity);
         } catch (IOException e) {
             Ln.e("Clean up I/O exception", e);
         }
     }
 
     private void run(int displayId, int restoreStayOn, boolean disableShowTouches, boolean powerOffScreen, int restoreScreenOffTimeout,
-            int restoreDisplayImePolicy) throws IOException {
+            int restoreDisplayImePolicy, String restoreWmSize, String restoreWmDensity) throws IOException {
         String[] cmd = {
                 "app_process",
                 "/",
@@ -134,6 +163,8 @@ public final class CleanUp {
                 String.valueOf(powerOffScreen),
                 String.valueOf(restoreScreenOffTimeout),
                 String.valueOf(restoreDisplayImePolicy),
+                restoreWmSize != null ? restoreWmSize : "",
+                restoreWmDensity != null ? restoreWmDensity : "",
         };
 
         ProcessBuilder builder = new ProcessBuilder(cmd);
@@ -196,6 +227,7 @@ public final class CleanUp {
 
         // Needed for workarounds
         prepareMainLooper();
+        Workarounds.apply();
 
         int displayId = Integer.parseInt(args[0]);
         int restoreStayOn = Integer.parseInt(args[1]);
@@ -203,6 +235,8 @@ public final class CleanUp {
         boolean powerOffScreen = Boolean.parseBoolean(args[3]);
         int restoreScreenOffTimeout = Integer.parseInt(args[4]);
         int restoreDisplayImePolicy = Integer.parseInt(args[5]);
+        String restoreWmSize = args.length > 6 ? args[6] : "";
+        String restoreWmDensity = args.length > 7 ? args[7] : "";
 
         // Dynamic option
         boolean restoreDisplayPower = false;
@@ -253,6 +287,14 @@ public final class CleanUp {
             ServiceManager.getWindowManager().setDisplayImePolicy(displayId, restoreDisplayImePolicy);
         }
 
+        if (!restoreWmSize.isEmpty()) {
+            restoreWmSize(displayId, restoreWmSize);
+        }
+
+        if (!restoreWmDensity.isEmpty()) {
+            restoreWmDensity(displayId, restoreWmDensity);
+        }
+
         // Change the power of the main display when mirroring a virtual display
         int targetDisplayId = displayId != Device.DISPLAY_ID_NONE ? displayId : 0;
         if (Device.isScreenOn(targetDisplayId)) {
@@ -266,5 +308,100 @@ public final class CleanUp {
         }
 
         System.exit(0);
+    }
+
+    private static String applyWmSize(int displayId, Size targetSize) throws IOException, InterruptedException {
+        DisplayInfo displayInfo = ServiceManager.getDisplayManager().getDisplayInfo(displayId);
+        if (displayInfo == null) {
+            Ln.w("Display info unavailable, skip wm size override for display " + displayId);
+            return null;
+        }
+
+        Size currentSize = displayInfo.getSize();
+        if (targetSize.equals(currentSize)) {
+            return null;
+        }
+
+        String restoreValue = readWmSizeOverride(displayId);
+        Ln.i("Applying wm size " + targetSize + " on display " + displayId);
+        execWm(displayId, "size", targetSize.toString());
+        return restoreValue != null ? restoreValue : RESTORE_RESET;
+    }
+
+    private static String applyWmDensity(int displayId, int targetDensity) throws IOException, InterruptedException {
+        DisplayInfo displayInfo = ServiceManager.getDisplayManager().getDisplayInfo(displayId);
+        if (displayInfo == null) {
+            Ln.w("Display info unavailable, skip wm density override for display " + displayId);
+            return null;
+        }
+
+        int currentDensity = displayInfo.getDpi();
+        if (targetDensity == currentDensity) {
+            return null;
+        }
+
+        String restoreValue = readWmDensityOverride(displayId);
+        Ln.i("Applying wm density " + targetDensity + " on display " + displayId);
+        execWm(displayId, "density", String.valueOf(targetDensity));
+        return restoreValue != null ? restoreValue : RESTORE_RESET;
+    }
+
+    private static void restoreWmSize(int displayId, String restoreValue) {
+        Ln.i("Restoring \"wm size\"");
+        try {
+            if (RESTORE_RESET.equals(restoreValue)) {
+                execWm(displayId, "size", "reset");
+            } else {
+                execWm(displayId, "size", restoreValue);
+            }
+        } catch (IOException | InterruptedException e) {
+            Ln.e("Could not restore \"wm size\"", e);
+        }
+    }
+
+    private static void restoreWmDensity(int displayId, String restoreValue) {
+        Ln.i("Restoring \"wm density\"");
+        try {
+            if (RESTORE_RESET.equals(restoreValue)) {
+                execWm(displayId, "density", "reset");
+            } else {
+                execWm(displayId, "density", restoreValue);
+            }
+        } catch (IOException | InterruptedException e) {
+            Ln.e("Could not restore \"wm density\"", e);
+        }
+    }
+
+    private static String readWmSizeOverride(int displayId) throws IOException, InterruptedException {
+        String output = readWm(displayId, "size");
+        return findFirstGroup(output, WM_SIZE_OVERRIDE_PATTERN);
+    }
+
+    private static String readWmDensityOverride(int displayId) throws IOException, InterruptedException {
+        String output = readWm(displayId, "density");
+        return findFirstGroup(output, WM_DENSITY_OVERRIDE_PATTERN);
+    }
+
+    private static String findFirstGroup(String value, Pattern pattern) {
+        if (value == null) {
+            return null;
+        }
+        Matcher matcher = pattern.matcher(value);
+        return matcher.find() ? matcher.group(1) : null;
+    }
+
+    private static String readWm(int displayId, String action) throws IOException, InterruptedException {
+        if (displayId > 0) {
+            return Command.execReadOutput("wm", action, "-d", String.valueOf(displayId));
+        }
+        return Command.execReadOutput("wm", action);
+    }
+
+    private static void execWm(int displayId, String action, String value) throws IOException, InterruptedException {
+        if (displayId > 0) {
+            Command.exec("wm", action, value, "-d", String.valueOf(displayId));
+        } else {
+            Command.exec("wm", action, value);
+        }
     }
 }

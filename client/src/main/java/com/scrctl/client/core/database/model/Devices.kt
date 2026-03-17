@@ -23,27 +23,27 @@ data class Device(
     @ColumnInfo(name = "device_port")
     var devicePort: Int = 5555,
 
-    @ColumnInfo(name = "model")
-    var model: String = "",
+    @ColumnInfo(name = "stream_video_enabled")
+    var streamVideoEnabled: Boolean = true,
 
-    @ColumnInfo(name = "android_version")
-    var androidVersion: String = "",
+    @ColumnInfo(name = "stream_audio_enabled")
+    var streamAudioEnabled: Boolean = true,
 
-    @ColumnInfo(name = "api_level")
-    var apiLevel: String = "",
+    @ColumnInfo(name = "stream_require_audio")
+    var streamRequireAudio: Boolean = false,
 
-    @ColumnInfo(name = "brand")
-    var brand: String = "",
+    @ColumnInfo(name = "stream_video_bitrate")
+    var streamVideoBitRate: Int = 8_000_000,
 
-    @ColumnInfo(name = "manufacturer")
-    var manufacturer: String = "",
+    @ColumnInfo(name = "stream_audio_bitrate")
+    var streamAudioBitRate: Int = 128_000,
 
-    @ColumnInfo(name = "serial_number")
-    var serialNumber: String = "",
+    @ColumnInfo(name = "stream_max_size")
+    var streamMaxSize: Int = 0,
 
-    @ColumnInfo(name = "cpu_abi")
-    var cpuAbi: String = "",
+    @ColumnInfo(name = "stream_video_codec")
+    var streamVideoCodec: String = "h264",
 
-    @ColumnInfo(name = "updated_at")
-    var updatedAt: Long = 0L,
+    @ColumnInfo(name = "stream_audio_codec")
+    var streamAudioCodec: String = "aac",
 )

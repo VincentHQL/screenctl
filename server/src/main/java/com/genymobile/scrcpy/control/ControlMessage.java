@@ -25,6 +25,33 @@ public final class ControlMessage {
     public static final int TYPE_OPEN_HARD_KEYBOARD_SETTINGS = 15;
     public static final int TYPE_START_APP = 16;
     public static final int TYPE_RESET_VIDEO = 17;
+    public static final int TYPE_SET_VIDEO_ENABLED = 20;
+    public static final int TYPE_SET_AUDIO_ENABLED = 21;
+    public static final int TYPE_INJECT_MULTI_TOUCH_EVENT = 22;
+
+    public static final class TouchPointer {
+        private final long pointerId;
+        private final Position position;
+        private final float pressure;
+
+        public TouchPointer(long pointerId, Position position, float pressure) {
+            this.pointerId = pointerId;
+            this.position = position;
+            this.pressure = pressure;
+        }
+
+        public long getPointerId() {
+            return pointerId;
+        }
+
+        public Position getPosition() {
+            return position;
+        }
+
+        public float getPressure() {
+            return pressure;
+        }
+    }
 
     public static final long SEQUENCE_INVALID = 0;
 
@@ -40,8 +67,10 @@ public final class ControlMessage {
     private int actionButton; // MotionEvent.BUTTON_*
     private int buttons; // MotionEvent.BUTTON_*
     private long pointerId;
+    private int actionIndex;
     private float pressure;
     private Position position;
+    private TouchPointer[] touchPointers;
     private float hScroll;
     private float vScroll;
     private int copyKey;
@@ -53,6 +82,7 @@ public final class ControlMessage {
     private boolean on;
     private int vendorId;
     private int productId;
+    private boolean enabled;
 
     private ControlMessage() {
     }
@@ -82,6 +112,18 @@ public final class ControlMessage {
         msg.pointerId = pointerId;
         msg.pressure = pressure;
         msg.position = position;
+        msg.actionButton = actionButton;
+        msg.buttons = buttons;
+        return msg;
+    }
+
+    public static ControlMessage createInjectMultiTouchEvent(int action, int actionIndex, TouchPointer[] touchPointers, int actionButton,
+            int buttons) {
+        ControlMessage msg = new ControlMessage();
+        msg.type = TYPE_INJECT_MULTI_TOUCH_EVENT;
+        msg.action = action;
+        msg.actionIndex = actionIndex;
+        msg.touchPointers = touchPointers;
         msg.actionButton = actionButton;
         msg.buttons = buttons;
         return msg;
@@ -124,6 +166,20 @@ public final class ControlMessage {
         ControlMessage msg = new ControlMessage();
         msg.type = TYPE_SET_DISPLAY_POWER;
         msg.on = on;
+        return msg;
+    }
+
+    public static ControlMessage createSetVideoEnabled(boolean enabled) {
+        ControlMessage msg = new ControlMessage();
+        msg.type = TYPE_SET_VIDEO_ENABLED;
+        msg.enabled = enabled;
+        return msg;
+    }
+
+    public static ControlMessage createSetAudioEnabled(boolean enabled) {
+        ControlMessage msg = new ControlMessage();
+        msg.type = TYPE_SET_AUDIO_ENABLED;
+        msg.enabled = enabled;
         return msg;
     }
 
@@ -198,12 +254,20 @@ public final class ControlMessage {
         return pointerId;
     }
 
+    public int getActionIndex() {
+        return actionIndex;
+    }
+
     public float getPressure() {
         return pressure;
     }
 
     public Position getPosition() {
         return position;
+    }
+
+    public TouchPointer[] getTouchPointers() {
+        return touchPointers;
     }
 
     public float getHScroll() {
@@ -248,5 +312,9 @@ public final class ControlMessage {
 
     public int getProductId() {
         return productId;
+    }
+
+    public boolean getEnabled() {
+        return enabled;
     }
 }

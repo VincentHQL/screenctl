@@ -33,11 +33,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 
-// Connection method types
-enum class ConnectionMethod {
-    DIRECT, WIRELESS
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeviceAddScreen(
@@ -56,7 +51,7 @@ fun DeviceAddScreen(
     var selectedMethod by remember { mutableStateOf(ConnectionMethod.DIRECT) }
     var deviceName by remember { mutableStateOf("") }
     var ipAddress by remember { mutableStateOf("") }
-    var adbPort by remember { mutableStateOf("5555") }
+    var adbPort by remember { mutableStateOf("") }
     var pairingPort by remember { mutableStateOf("") }
     var pairingCode by remember { mutableStateOf("") }
 
@@ -257,7 +252,7 @@ fun DeviceAddScreen(
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = "正在连接...",
+                            text = "正在添加...",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
                             color = onPrimary
@@ -272,7 +267,7 @@ fun DeviceAddScreen(
                                 .padding(end = 8.dp)
                         )
                         Text(
-                            text = "连接设备",
+                            text = "添加设备",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
                             color = onPrimary
