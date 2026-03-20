@@ -16,6 +16,7 @@ import com.scrctl.client.ui.device.app.AppManagerScreen
 import com.scrctl.client.ui.device.file.FileManagerScreen
 import com.scrctl.client.ui.device.monitor.DeviceMonitorScreen
 import com.scrctl.client.ui.device.remote.RemoteControlScreen
+import com.scrctl.client.ui.device.terminal.TerminalScreen
 import com.scrctl.client.ui.home.HomeScreen
 
 sealed class Screen(val route: String) {
@@ -40,6 +41,10 @@ sealed class Screen(val route: String) {
 
     object DeviceMonitor : Screen("device_monitor/{deviceId}") {
         fun createRoute(deviceId: String) = "device_monitor/$deviceId"
+    }
+
+    object Terminal : Screen("terminal/{deviceId}") {
+        fun createRoute(deviceId: String) = "terminal/$deviceId"
     }
 }
 
@@ -74,6 +79,10 @@ class ScrctlAppState(
 
     fun navigateToDeviceMonitor(deviceId: Long) {
         navController.navigate(Screen.DeviceMonitor.createRoute(deviceId.toString()))
+    }
+
+    fun navigateToTerminal(deviceId: Long) {
+        navController.navigate(Screen.Terminal.createRoute(deviceId.toString()))
     }
 
     fun navigateToDeviceAdd() {
@@ -126,7 +135,8 @@ fun ScrctlNavHost(
                 onEnterControl = { appState.navigateToRemoteControl(deviceId.toLong()) },
                 onFileManager = { appState.navigateToFileManager(deviceId.toLong()) },
                 onAppManager = { appState.navigateToAppManager(deviceId.toLong()) },
-                onDeviceMonitor = { appState.navigateToDeviceMonitor(deviceId.toLong()) }
+                onDeviceMonitor = { appState.navigateToDeviceMonitor(deviceId.toLong()) },
+                onTerminal = { appState.navigateToTerminal(deviceId.toLong()) }
             )
         }
 
@@ -183,6 +193,20 @@ fun ScrctlNavHost(
             RemoteControlScreen(
                 deviceId = deviceId,
                 onExit = { appState.navigateBack() }
+            )
+        }
+
+        // 终端
+        composable(
+            route = Screen.Terminal.route,
+            arguments = listOf(
+                navArgument("deviceId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val deviceId = backStackEntry.arguments?.getString("deviceId") ?: return@composable
+            TerminalScreen(
+                deviceId = deviceId.toLong(),
+                onBackClick = { appState.navigateBack() }
             )
         }
         
